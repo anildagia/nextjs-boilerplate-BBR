@@ -1,0 +1,345 @@
+Authentication : 
+Api Key
+Custom
+X-License-Key
+
+Privacy Policy:
+https://discovering-beliefs.vercel.app/privacy
+
+
+Schema :
+openapi: 3.1.1
+info:
+  title: Discovering Beliefs API
+  version: 1.0.0
+servers:
+  - url: https://discovering-beliefs.vercel.app
+
+components:
+  securitySchemes:
+    licenseKey:
+      type: apiKey
+      in: header
+      name: X-License-Key
+  schemas: {}
+
+paths:
+  /api/trial/boot:
+    get:
+      operationId: trialBoot
+      summary: Initialize or read free-trial status (email-backed or cookie fallback)
+      parameters:
+        - in: query
+          name: email
+          required: false
+          schema: { type: string, format: email }
+          description: If provided, starts/reads a Blob-backed trial-by-email
+      responses:
+        "200":
+          description: Trial status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trial: { type: string, enum: [active, expired] }
+                  startedAt: { type: string, nullable: true }
+                  expiresAt: { type: string, nullable: true }
+                  daysTotal: { type: integer }
+                  day: { type: integer }
+                  mode: { type: string, enum: [email, cookie] }
+                  message: { type: string }
+
+  /api/trial/status:
+    get:
+      operationId: trialStatus
+      summary: Get current trial status (days left, end date)
+      responses:
+        "200":
+          description: Trial info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trialDays:   { type: integer }
+                  startedAt:   { type: string, nullable: true }
+                  isActive:    { type: boolean }
+                  daysLeft:    { type: integer }
+                  endsAtISO:   { type: string, nullable: true }
+
+  /api/beliefs/scan:
+    post:
+      operationId: beliefsScan
+      summary: Free belief inference (quota enforced server-side)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                situation:
+                  type: string
+                emotion:
+                  type: string
+                anonId:
+                  type: string
+      responses:
+        "200":
+          description: Inferred belief with prompts (free result)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  belief:
+                    type: string
+                  prompts:
+                    type: array
+                    items:
+                      type: string
+                  severity:
+                    type: integer
+                  safety:
+                    type: string
+        "429":
+          description: Daily free limit reached (5/day)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  message:
+                    type: string
+                  upgradeUrl:
+                    type: string
+
+  /api/beliefs/reframe:
+    post:
+      operationId: beliefsReframe
+      summary: Generate a Pro NLP reframe workflow
+      parameters:
+        - in: query
+          name: key
+          required: true
+          schema:
+            type: string
+          description: License key, e.g., LIC-PRO-cus_xxx-XXXXXX
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                belief:
+                  type: string
+                context:
+                  type: string
+      responses:
+        "200":
+          description: Reframe steps
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  belief:
+                    type: string
+                  context:
+                    type: string
+                  steps:
+                    type: array
+                    items:
+                      type: string
+                  note:
+                    type: string
+        "402":
+          description: Payment required / upgrade
+
+  /api/actions/plan:
+    post:
+      operationId: actionsPlan
+      summary: Generate a 7-day micro-action plan (Pro)
+      parameters:
+        - in: query
+          name: key
+          required: true
+          schema:
+            type: string
+          description: License key, e.g., LIC-PRO-cus_xxx-XXXXXX
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                belief:
+                  type: string
+                goal:
+                  type: string
+      responses:
+        "200":
+          description: Action plan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  belief:
+                    type: string
+                  goal:
+                    type: string
+                  plan:
+                    type: array
+                    items:
+                      type: string
+                  cautions:
+                    type: array
+                    items:
+                      type: string
+        "402":
+          description: Payment required / upgrade
+
+  /api/libraries/themes:
+    get:
+      operationId: listThemes
+      summary: List available belief-library themes (free preview included)
+      responses:
+        "200":
+          description: Available themes and a free preview list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  themes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                        title:
+                          type: string
+                        count:
+                          type: integer
+                  preview:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        theme:
+                          type: string
+                        items:
+                          type: array
+                          items:
+                            type: string
+
+  /api/libraries/{theme}:
+    get:
+      operationId: getTheme
+      summary: Get the full list of belief statements for a theme (Pro)
+      parameters:
+        - in: path
+          name: theme
+          required: true
+          schema:
+            type: string
+            enum: [health_discipline, leadership_imposter, money_beliefs, relationships_boundaries, entrepreneur_risk_tolerance]
+        - in: query
+          name: key
+          required: true
+          schema:
+            type: string
+          description: License key, e.g., LIC-PRO-cus_xxx-XXXXXX
+      responses:
+        "200":
+          description: Full themed library (Pro)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                  title:
+                    type: string
+                  items:
+                    type: array
+                    items:
+                      type: string
+        "402":
+          description: Payment required / upgrade
+      "403":
+        description: Forbidden (license invalid or not authorized)
+        "404":
+          description: Unknown theme
+
+  /api/license/status:
+    get:
+      operationId: licenseStatus
+      summary: Check if the provided license key has Pro access (query param preferred; header optional)
+      parameters:
+        - in: query
+          name: key
+          required: false
+          schema:
+            type: string
+          description: Optional license key (e.g., LIC-PRO-cus_XXXX-ABCDEFGH). If omitted, the server will read the X-License-Key header.
+      responses:
+        "200":
+          description: License status and available features
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  plan:
+                    type: string
+                  expiresAt:
+                    type: string
+                    nullable: true
+                  features:
+                    type: array
+                    items:
+                      type: string
+  /api/exports/pdf:
+    post:
+      operationId: exportPdf
+      summary: Export session summary as PDF (returns public URL)
+      parameters:
+        - in: query
+          name: key
+          required: true
+          schema: { type: string }
+          description: License key, e.g., LIC-PRO-cus_xxx-XXXXXX
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                belief: { type: string }
+                steps:  { type: array, items: { type: string } }
+                plan:   { type: array, items: { type: string } }
+      responses:
+        "200":
+          description: JSON with a public URL to the generated PDF
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fileName: { type: string }
+                  url:      { type: string }
+                  bytes:    { type: number }
+        "402":
+          description: Payment required / upgrade

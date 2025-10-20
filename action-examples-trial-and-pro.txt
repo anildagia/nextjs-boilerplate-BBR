@@ -1,0 +1,104 @@
+# ACTION EXAMPLES — TRIAL BOOT, SCAN, PRO FLOWS
+# Use these as canonical examples of how to call the API.
+# The assistant should follow these formats verbatim where applicable.
+
+[BootCall-001]
+Purpose: First message in a new chat — start/read the trial BEFORE any other endpoint.
+Action: trialBoot
+HTTP:
+  - If user email is known:   GET /api/trial/boot?email={{user.email}}
+  - Else (fallback cookie):   GET /api/trial/boot
+Expected Outcome (200 OK):
+  {
+    "trial": "started" | "ok" | "active" | "expired",
+    "startedAt": "<ISO8601?>",
+    "expiresAt": "<ISO8601?>",
+    "daysTotal": <number?>,
+    "daysUsed": <number?>,
+    "active": <boolean?>
+  }
+UI Rules:
+  - If trial in ["started","ok","active"] → compute dayIndex = min(daysTotal, daysUsed+1) when fields exist,
+    then say: "Free trial active — day {dayIndex} of {daysTotal}."
+  - If trial == "expired" OR response status is 402 → show upgrade CTA and STOP that flow.
+Notes:
+  - Call this exactly once per new conversation (cache the result for this chat).
+  - Do not block the user to collect email; use cookie fallback when email is unknown.
+
+
+[Scan-001-FreeDuringTrial]
+Purpose: Identify a limiting belief (always use the API; no local inference).
+Action: beliefsScan
+HTTP: POST /api/beliefs/scan
+Body:
+  {
+    "situation": "<user words>",
+    "emotion": "<user words or inferred>",
+    "anonId": "guest-{{hash(user.first_message)}}"
+  }
+Expected Outcomes:
+  - 200 OK with { "belief", "prompts": [...], "severity": 1-10, "safety": "..." }
+  - 402 PaymentRequired if trial expired (assistant shows upgrade CTA and stops).
+  - 429 Too Many Requests if daily free quota hit (assistant explains limit and points to /pricing).
+Notes:
+  - Do not run any local identification/reframing when the user asks for a belief scan—always call the endpoint.
+  - Keep prompts concise; mirror the user's phrasing when summarizing results.
+
+[Reframe-001-Pro]
+Purpose: Pro reframe after license is active.
+Action: beliefsReframe
+HTTP: POST /api/beliefs/reframe?key={{savedLicense}}
+Body:
+  { "belief": "<text>", "context": "<optional>" }
+Expected:
+  200 OK with { "belief", "context", "steps": [...], "note": "..." }
+Errors:
+  402 if inactive license → assistant shows upgrade CTA and stops.
+
+[Plan-001-Pro]
+Action: actionsPlan
+HTTP: POST /api/actions/plan?key={{savedLicense}}
+Body:
+  { "belief": "<text>", "goal": "<text>" }
+Expected:
+  200 OK with { "belief", "goal", "plan": [...], "cautions": [...] }
+
+[Libraries-001-Pro]
+Action: getTheme
+HTTP: GET /api/libraries/{theme}?key={{savedLicense}}
+Params:
+  theme: "health_discipline" | "leadership_imposter"
+Expected:
+  200 OK with { "key", "title", "items": [...] }
+
+[Export-001-Pro]
+Action: exportPdf
+HTTP: POST /api/exports/pdf?key={{savedLicense}}
+Body:
+  { "belief": "<text>", "steps": ["..."], "plan": ["..."] }
+Expected:
+  200 OK with { "fileName", "url", "bytes" }
+
+[Journal-001-Pro-Save]
+Action: journalSave
+HTTP: POST /api/journal/entries?key={{savedLicense}}
+Body:
+  {
+    "templateId": "<one of your templates or 'custom'>",
+    "title": "<short>",
+    "payload": { "belief": "<text>", "steps": ["..."], "summary": "<optional>" }
+  }
+Expected:
+  200 OK with { "id", "title", "savedAt", "url" }
+
+[Journal-002-Pro-List]
+Action: journalList
+HTTP: GET /api/journal/entries?key={{savedLicense}}
+Expected:
+  200 OK with { "entries": [{ "id", "title", "createdAt", "url" }, ...] }
+
+[Journal-003-Pro-Fetch]
+Action: journalFetch
+HTTP: GET /api/journal/entries/{id}?key={{savedLicense}}
+Expected:
+  200 OK with full payload

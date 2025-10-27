@@ -1,0 +1,36 @@
+Belief Blueprint Analyzer Custom GPT
+
+whsec_G98XueDNspprRrGEYMdVnNaPdZ5w055w
+
+PRICE_PRO_MONTHLY_INR		4,999 + 18% GST		price_1SMkrdSFQcdmq2ng8fBUtVpr
+PRICE_PRO_ANNUAL_INR		49,999 + 18% GST		price_1SMkt0SFQcdmq2ngx3XLeBjV
+PRICE_PRO_MONTHLY_USD	94.94				price_1SMksJSFQcdmq2ngONn6a4IT
+PRICE_PRO_ANNUAL_USD		949					price_1SMktaSFQcdmq2ngufOTFXEh
+
+GIFT_PRICE_ID=price_1SMkrdSFQcdmq2ng8fBUtVpr
+
+ADMIN_TOKEN=Lp701qBiz7fuaLW7
+
+
+Issue Gift License with any price id
+https://discovering-beliefs.vercel.app/api/admin/gifts/issue-stripe?token=MTOAMdjG3tfZtkog&email=USER_EMAIL@example.com&days=NN&price=price_1SFhQvSFQcdmq2ngG7UhaVeT
+<price is optional if you set GIFT_PRICE_ID>
+
+Revoke Gift License using email address
+https://discovering-beliefs.vercel.app/api/admin/gifts/revoke-stripe?token=MTOAMdjG3tfZtkog&email=USER_EMAIL@example.com
+
+Revoke Gift License using customer id
+https://discovering-beliefs.vercel.app/api/admin/gifts/revoke-stripe?token=MTOAMdjG3tfZtkog&customerId=cus_XXXXXXXXXXXX
+
+Revoke Gift License using email address using License key
+https://discovering-beliefs.vercel.app/api/admin/gifts/revoke-stripe?token=MTOAMdjG3tfZtkog&license=LIC-PRO-cus_XXXXXXXXXXXX-ABCDEF12
+
+Fetch License key
+https://discovering-beliefs.vercel.app/api/admin/license?token=MTOAMdjG3tfZtkog&customerId=<>
+https://discovering-beliefs.vercel.app/api/admin/license?token=MTOAMdjG3tfZtkog&email=<>
+
+View List of Blueprint Reports
+https://belief-blueprint.vercel.app/reports?license=LIC-PRO-cus_Sdll4fFYCLr5q7-3D01C27B&owner=5th-element&debug=1
+
+View Specific Blueprint Report
+https://belief-blueprint.vercel.app/report/view/<report-id : rpt-nnnn>rpt-1761576859302

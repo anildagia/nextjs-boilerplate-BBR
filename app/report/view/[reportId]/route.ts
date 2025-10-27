@@ -1,101 +1,59 @@
 // app/report/view/[reportId]/route.ts
+// Route Handler that returns the stored HTML file as-is (text/html).
+// No React involved; no JSX; no capitalized <HTML> tags rendered by React.
+
+import { NextRequest, NextResponse } from "next/server";
 import { list } from "@vercel/blob";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Minimal types for @vercel/blob list() results */
-type BlobListItem = {
-  pathname: string;
-  url: string;
-  size?: number;
-  uploadedAt?: string;
-};
-type ListResponse = {
-  blobs: BlobListItem[];
-  cursor?: string | null;
-};
-
-/** Works for Next 14/15 where context.params may be a Promise. */
-async function resolveParams<T extends object>(maybeParams: T | Promise<T>): Promise<T> {
-  const anyVal: any = maybeParams as any;
-  return typeof anyVal?.then === "function" ? await (maybeParams as Promise<T>) : (maybeParams as T);
-}
-
-/** Escape a string for safe use inside a RegExp. */
-function escapeRe(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/**
- * Find the HTML blob whose pathname ends with:
- *   "/{reportId}.html"                   OR
- *   "/{reportId}-{RANDOM}.html"
- * anywhere under the "reports/" prefix (any owner subfolder).
- */
-async function findReportHtmlBlob(reportId: string) {
-  const idEsc = escapeRe(reportId);
-  const re = new RegExp(`/(?:${idEsc})(?:-[A-Za-z0-9_-]+)?\\.html$`); // .../rpt-123.html or .../rpt-123-XYZ.html
-
-  let cursor: string | undefined = undefined;
-
-  do {
-    const resp = (await list({
-      prefix: "reports/",
-      limit: 1000,
-      cursor,
-      ...(process.env.BLOB_READ_WRITE_TOKEN ? { token: process.env.BLOB_READ_WRITE_TOKEN } : {}),
-    })) as unknown as ListResponse;
-
-    for (const b of resp.blobs) {
-      if (re.test(b.pathname)) {
-        return b; // { url, pathname, ... }
-      }
-    }
-    cursor = (resp.cursor ?? undefined) as string | undefined;
-  } while (cursor);
-
-  return null;
-}
+const FILE_RE = /^reports\/([^/]+)\/(rpt-(\d{13}))(?:-[A-Za-z0-9]+)?\.html$/i;
 
 export async function GET(
-  _req: Request,
-  context: { params: { reportId: string } } | { params: Promise<{ reportId: string }> }
+  _req: NextRequest,
+  ctx: { params: { reportId: string } }
 ) {
-  const { reportId } = await resolveParams(context.params as any);
-
+  const reportId = ctx?.params?.reportId;
   if (!reportId) {
-    return new Response(JSON.stringify({ message: "Missing reportId" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new NextResponse("Missing reportId", { status: 400 });
   }
 
-  const blob = await findReportHtmlBlob(reportId);
-  if (!blob) {
-    return new Response("Report HTML not found", {
-      status: 404,
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
+  // Find the first HTML that matches reports/*/<reportId>*.html
+  let cursor: string | undefined = undefined;
+  let htmlUrl: string | undefined;
+
+  do {
+    const page = await list({ prefix: "reports/", limit: 1000, cursor });
+    for (const b of page.blobs) {
+      const m = FILE_RE.exec(b.pathname);
+      if (!m) continue;
+      const rid = m[2]; // rpt-<ts>
+      if (rid === reportId) {
+        htmlUrl = (b as any).url || undefined;
+        break;
+      }
+    }
+    if (htmlUrl || !page.cursor) break;
+    cursor = page.cursor;
+  } while (!htmlUrl);
+
+  if (!htmlUrl) {
+    return new NextResponse("Report not found", { status: 404 });
   }
 
-  // Fetch the saved HTML AS-IS (logo/styles already embedded in the file itself)
-  const fetchRes = await fetch(blob.url, { cache: "no-store" });
-  if (!fetchRes.ok) {
-    const msg = await fetchRes.text().catch(() => fetchRes.statusText);
-    return new Response(
-      JSON.stringify({ message: "Failed to fetch HTML", detail: msg.slice(0, 300) }),
-      { status: 502, headers: { "Content-Type": "application/json" } }
-    );
+  const upstream = await fetch(htmlUrl);
+  if (!upstream.ok) {
+    return new NextResponse("Failed to fetch report HTML", { status: 502 });
   }
 
-  const html = await fetchRes.text();
-  return new Response(html, {
+  const body = await upstream.text();
+  return new NextResponse(body, {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "X-Content-Type-Options": "nosniff",
-      "Cache-Control": "no-store",
+      // optional cache header (tunable)
+      "Cache-Control": "public, max-age=60",
     },
   });
 }

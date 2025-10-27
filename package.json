@@ -13,9 +13,7 @@
     "next": "15.5.4",
     "stripe": "^16.0.0",
     "pdf-lib": "^1.17.1",
-    "@vercel/blob": "^0.24.0",
-    "@sparticuz/chromium": "^141.0.0",
-    "puppeteer-core": "^24.26.1"
+    "@vercel/blob": "^0.24.0"
   },
   "devDependencies": {
     "typescript": "^5",

@@ -53,8 +53,17 @@ export async function POST(req: Request) {
   // Generate a reportId + blob paths
   const ts = Date.now();
   const reportId = `rpt-${ts}`;
-  const emailKey = (pro.emailKey || "anon").toLowerCase(); // if your requirePro exposes an emailKey; otherwise "anon"
-  const basePath = `reports/${emailKey}/${reportId}`;
+
+  // derive a stable owner key without relying on requirePro’s shape
+  const ownerRaw =
+    (body.report_meta?.prepared_by?.trim() ||
+     body.report_meta?.prepared_for?.trim() ||
+     "anon");
+  
+  const ownerKey = ownerRaw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+
+  // where files will be stored
+  const basePath = `reports/${ownerKey}/${reportId}`;
 
   // 1) Store JSON (extended model)
   const jsonBlob = await putBlob(

@@ -3,18 +3,15 @@
 // Additive-only; does not modify existing files.
 
 type PutResult = { url: string; pathname?: string; size?: number; uploadedAt?: string };
+type PutFn = (pathname: string, data: any, contentType?: string) => Promise<PutResult>;
 
-type PutLike =
-  | ((pathname: string, data: any, contentType?: string) => Promise<PutResult>)                                // putBlob(path, data, ct)
-  | ((pathname: string, data: any, opts?: { contentType?: string; access?: "public" | "private" }) => Promise<PutResult>); // put(path, data, opts)
-
-let cached: (pathname: string, data: any, contentType?: string) => Promise<PutResult> | null = null;
+let cached: PutFn | null = null;
 
 async function tryImport<T = any>(path: string): Promise<T | null> {
   try { return (await import(path)) as T; } catch { return null; }
 }
 
-async function resolveImpl(): Promise<(pathname: string, data: any, contentType?: string) => Promise<PutResult>> {
+async function resolveImpl(): Promise<PutFn> {
   // Common places teams keep a blob helper:
   const candidates = [
     "@/app/api/_lib/blob",           // e.g., export { putBlob } or export { put }
@@ -28,9 +25,11 @@ async function resolveImpl(): Promise<(pathname: string, data: any, contentType?
     if (!mod) continue;
 
     if (typeof mod.putBlob === "function") {
+      // Signature: putBlob(path, data, contentType?)
       return (pathname, data, contentType) => mod.putBlob(pathname, data, contentType);
     }
     if (typeof mod.put === "function") {
+      // Signature: put(path, data, { contentType, access })
       return (pathname, data, contentType) => mod.put(pathname, data, { contentType, access: "public" });
     }
   }

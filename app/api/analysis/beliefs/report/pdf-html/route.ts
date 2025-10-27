@@ -45,6 +45,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  chromium.setHeadlessMode = true;
+  chromium.setGraphicsMode = false;
+  
   const browser = await puppeteer.launch({
     args: chromium.args,
     executablePath: exePath,

@@ -1,4 +1,5 @@
 // app/reports/page.tsx
+import { headers } from "next/headers";
 export const dynamic = "force-dynamic";
 
 type Row = {
@@ -7,14 +8,21 @@ type Row = {
   html_url?: string;
   json_url?: string;
   viewer_url: string;
+  pdf_url?: string;
+  ts: number;
 };
 
 async function fetchReports(owner: string | undefined, license: string | undefined): Promise<{ items: Row[] }> {
+  // Build absolute base URL from incoming request
+  const hdrs = headers();
+  const host = hdrs.get("host") || "";
+  const proto = hdrs.get("x-forwarded-proto") || "https";
+  const base = `${proto}://${host}`;
+
   const params = new URLSearchParams();
   if (owner) params.set("owner", owner.toLowerCase());
 
-  // Use relative path; Next will resolve to this app’s API
-  const res = await fetch(`/api/reports/list?${params.toString()}`, {
+  const res = await fetch(`${base}/api/reports/list?${params.toString()}`, {
     cache: "no-store",
     headers: license ? { "X-License-Key": license } : {},
   }).catch(() => null);
@@ -24,10 +32,10 @@ async function fetchReports(owner: string | undefined, license: string | undefin
 }
 
 export default async function ReportsPage({ searchParams }: { searchParams: { owner?: string; license?: string } }) {
-  const owner = (searchParams?.owner || "").trim();
-  const license = (searchParams?.license || "").trim();
+  const owner = (searchParams?.owner || "").trim() || undefined;
+  const license = (searchParams?.license || "").trim() || undefined;
 
-  const { items } = await fetchReports(owner || undefined, license || undefined);
+  const { items } = await fetchReports(owner, license);
 
   return (
     <main className="min-h-screen bg-gray-50 p-6">
@@ -39,14 +47,14 @@ export default async function ReportsPage({ searchParams }: { searchParams: { ow
               type="text"
               name="owner"
               placeholder="Filter by owner (prepared_by/for)"
-              defaultValue={owner}
+              defaultValue={owner || ""}
               className="border rounded px-3 py-2 text-sm"
             />
             <input
               type="password"
               name="license"
               placeholder="License key"
-              defaultValue={license}
+              defaultValue={license || ""}
               className="border rounded px-3 py-2 text-sm"
             />
             <button className="px-3 py-2 text-sm rounded bg-black text-white">Apply</button>
@@ -66,49 +74,13 @@ export default async function ReportsPage({ searchParams }: { searchParams: { ow
               No reports found{owner ? ` for “${owner}”` : ""}.
             </div>
           ) : (
-            items.map((r) => (
-              <div key={`${r.owner}-${r.report_id}`} className="p-4 flex items-center justify-between">
-                <div className="space-y-1">
-                  <div className="font-medium">{r.report_id}</div>
-                  <div className="text-sm text-gray-500">Owner: {r.owner}</div>
-                </div>
-                <div className="flex gap-3">
-                  <a
-                    className="text-blue-600 hover:underline text-sm"
-                    href={r.viewer_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Open
-                  </a>
-                  {r.html_url && (
-                    <button
-                      className="text-sm underline"
-                      onClick={async () => {
-                        await navigator.clipboard.writeText(r.html_url!);
-                        alert("HTML URL copied");
-                      }}
-                    >
-                      Copy HTML
-                    </button>
-                  )}
-                  {r.json_url && (
-                    <button
-                      className="text-sm underline"
-                      onClick={async () => {
-                        await navigator.clipboard.writeText(r.json_url!);
-                        alert("JSON URL copied");
-                      }}
-                    >
-                      Copy JSON
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))
+            <ClientList items={items} />
           )}
         </div>
       </div>
     </main>
   );
 }
+
+// Inline client component import shim (co-located file below)
+import ClientList from "./ClientList";

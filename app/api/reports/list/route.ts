@@ -6,17 +6,32 @@ import { requirePro } from "@/app/api/_lib/paywall";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Extract rpt id and owner from a blob pathname like:
-// reports/<owner>/rpt-1730025600.html
-// reports/<owner>/rpt-1730025600-XYZ.json
-const RPT_RE = /\/reports\/([^/]+)\/(rpt-\d+)(?:-[^/.]+)?\.(html|json)$/i;
+type BlobListItem = {
+  pathname: string;  // e.g. reports/<owner>/rpt-1761562672200-ABC.html
+  url: string;
+  size?: number;
+  uploadedAt?: string;
+};
+type ListResponse = {
+  blobs: BlobListItem[];
+  cursor?: string | null;
+};
+
+const FILE_RE = /^reports\/([^/]+)\/(rpt-(\d+))-([A-Za-z0-9_-]+)\.(html|json)$/i;
+// groups:
+// 1: owner
+// 2: report_id base (rpt-<timestamp>)
+// 3: timestamp (digits)
+// 4: random suffix
+// 5: ext (html|json)
 
 type Row = {
   owner: string;
-  report_id: string;
+  report_id: string;      // rpt-<timestamp>
   html_url?: string;
   json_url?: string;
-  viewer_url: string;
+  viewer_url: string;     // /report/view/<report_id>
+  ts: number;             // sort helper
 };
 
 export async function GET(req: NextRequest) {
@@ -27,50 +42,55 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const ownerFilter = (url.searchParams.get("owner") || "").trim().toLowerCase();
   const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get("limit") || 1000)));
-  const cursor = url.searchParams.get("cursor") || undefined;
+  const cursorIn = url.searchParams.get("cursor") || undefined;
 
-  // Optional optimization: if owner provided, tighten the prefix
+  // If owner provided, scope to that prefix; else scan all reports/*
   const prefix = ownerFilter ? `reports/${ownerFilter}/` : "reports/";
 
-  const resp = await list({
+  const resp = (await list({
     prefix,
     limit,
-    cursor,
+    cursor: cursorIn,
     ...(process.env.BLOB_READ_WRITE_TOKEN ? { token: process.env.BLOB_READ_WRITE_TOKEN } : {}),
-  });
+  })) as unknown as ListResponse;
 
-  // group by (owner, report_id)
-  const map = new Map<string, Row>();
+  const origin = new URL(req.url).origin;
+  const map = new Map<string, Row>(); // key: owner::report_id
 
   for (const b of resp.blobs) {
-    const m = b.pathname.match(RPT_RE);
+    const m = b.pathname.match(FILE_RE);
     if (!m) continue;
-    const [, ownerRaw, reportId, ext] = m;
-    const owner = ownerRaw.toLowerCase();
 
-    const key = `${owner}::${reportId}`;
-    const row = map.get(key) || {
-      owner,
-      report_id: reportId,
-      viewer_url: `${new URL(req.url).origin}/report/view/${reportId}`,
-    };
+    const owner = m[1].toLowerCase();
+    const report_id = m[2].toLowerCase(); // rpt-<timestamp>
+    const tsNum = Number(m[3]) || 0;
+    const ext = m[5].toLowerCase();
 
+    if (ownerFilter && owner !== ownerFilter) continue;
+
+    const key = `${owner}::${report_id}`;
+    let row = map.get(key);
+    if (!row) {
+      row = {
+        owner,
+        report_id,
+        viewer_url: `${origin}/report/view/${report_id}`,
+        ts: tsNum,
+      };
+      map.set(key, row);
+    }
     if (ext === "html") row.html_url = b.url;
     if (ext === "json") row.json_url = b.url;
-
-    map.set(key, row);
   }
 
-  // Turn into array (most recent first by numeric id)
-  const rows = Array.from(map.values()).sort((a, b) => {
-    const ta = Number(a.report_id.replace("rpt-", "")) || 0;
-    const tb = Number(b.report_id.replace("rpt-", "")) || 0;
-    return tb - ta;
-  });
+  // Keep only rows that have at least html OR json; sort by timestamp desc
+  const items = Array.from(map.values())
+    .filter(r => r.html_url || r.json_url)
+    .sort((a, b) => b.ts - a.ts);
 
   return NextResponse.json({
     ok: true,
-    items: rows,
+    items,
     cursor: resp.cursor ?? null,
   });
 }

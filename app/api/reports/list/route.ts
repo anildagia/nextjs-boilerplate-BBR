@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type BlobListItem = {
-  pathname: string;  // e.g. reports/<owner>/rpt-1761562672200-ABC.html
+  pathname: string;  // e.g. reports/<owner>/rpt-1761562672200.html
   url: string;
   size?: number;
   uploadedAt?: string;
@@ -18,25 +18,28 @@ type ListResponse = {
 };
 
 /**
- * Your exact convention:
- *   Path:    reports/<owner>/
- *   Files:   rpt-<timestamp>-<random>.{html|json}
- * Example:   reports/anil-dagia/rpt-1761562672200-0WPUd... .html
+ * Accept BOTH:
+ *   reports/<owner>/rpt-<timestamp>.(html|json|pdf)
+ *   reports/<owner>/rpt-<timestamp>-<random>.(html|json|pdf)  // future-proof
+ *
+ * Groups by {owner, rpt-<timestamp>}.
  *
  * Regex groups:
- *  1: owner (folder)
+ *  1: owner
  *  2: report_id base (rpt-<timestamp>)
  *  3: timestamp (digits)
- *  4: random suffix
- *  5: extension (html|json)
+ *  4: optional random suffix (if present)
+ *  5: extension (html|json|pdf)
  */
-const FILE_RE = /^reports\/([^/]+)\/(rpt-(\d+))-([A-Za-z0-9_-]+)\.(html|json)$/i;
+const FILE_RE =
+  /^reports\/([^/]+)\/(rpt-(\d+))(?:-[A-Za-z0-9_-]+)?\.(html|json|pdf)$/i;
 
 type Row = {
   owner: string;
   report_id: string;      // rpt-<timestamp>
   html_url?: string;
   json_url?: string;
+  pdf_url?: string;       // present if you kept older pdfs
   viewer_url: string;     // /report/view/<report_id>
   ts: number;             // numeric timestamp for sorting
 };
@@ -54,11 +57,8 @@ export async function GET(req: NextRequest) {
   const debug = url.searchParams.get("debug") === "1";
 
   const origin = new URL(req.url).origin;
-
-  // If owner provided, scope to that prefix; else scan all reports/*
   const prefix = ownerFilter ? `reports/${ownerFilter}/` : "reports/";
 
-  // DEBUG: collect diagnostics and also print to logs
   const diag: Record<string, any> = {
     prefixUsed: prefix,
     ownerFilter,
@@ -74,7 +74,6 @@ export async function GET(req: NextRequest) {
   let pages = 0;
   const maxPages = debug ? 5 : 1; // in debug, scan up to 5 pages
 
-  // Page through results
   do {
     pages += 1;
     diag.pagesScanned = pages;
@@ -99,7 +98,6 @@ export async function GET(req: NextRequest) {
     for (const b of resp.blobs) {
       const m = b.pathname.match(FILE_RE);
       if (!m) {
-        // In debug, log mismatches to see what’s actually in the bucket
         if (debug) console.log("[reports/list] SKIP (no match to FILE_RE):", b.pathname);
         continue;
       }
@@ -125,24 +123,22 @@ export async function GET(req: NextRequest) {
         };
         map.set(key, row);
       }
+
       if (ext === "html") row.html_url = b.url;
-      if (ext === "json") row.json_url = b.url;
+      else if (ext === "json") row.json_url = b.url;
+      else if (ext === "pdf") row.pdf_url = b.url;
     }
 
     cursor = (resp.cursor ?? undefined) as string | undefined;
-
-    // If we’re not in debug mode, or we already scanned enough pages, stop.
     if (!debug || pages >= maxPages) break;
   } while (cursor);
 
-  // Build items
   const items = Array.from(map.values())
-    .filter((r) => r.html_url || r.json_url)
+    .filter((r) => r.html_url || r.json_url || r.pdf_url)
     .sort((a, b) => b.ts - a.ts);
 
   console.log("[reports/list] DONE", { items: items.length, pagesScanned: pages });
 
-  // Return diagnostics only if debug=1 (to avoid leaking internals)
   const body: any = {
     ok: true,
     items,

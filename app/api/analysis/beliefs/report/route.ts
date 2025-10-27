@@ -13,6 +13,17 @@ type ReportRequest = {
   report_meta?: ReportMeta;
 };
 
+function getBaseUrl(req: Request) {
+  let base = process.env.DOMAIN || "";
+  if (!base) {
+    const host = new URL(req.url).host;
+    const proto = req.headers.get("x-forwarded-proto") || "https";
+    base = `${proto}://${host}`;
+  }
+  if (!/^https?:\/\//i.test(base)) base = `https://${base}`;
+  return base.replace(/\/+$/, "");
+}
+
 export async function POST(req: Request) {
   // 0) Paywall
   const pro = await requirePro(req);
@@ -69,14 +80,19 @@ export async function POST(req: Request) {
     "text/html; charset=utf-8"
   );
 
-  // 6) Respond with URLs (users can open HTML and “Print to PDF” in browser)
+  // 6) Build viewer URL (pretty route that streams the exact saved HTML by reportId)
+  const baseUrl = getBaseUrl(req);
+  const viewer_url = `${baseUrl}/report/view/${reportId}`;
+
+  // 7) Respond with URLs (users can open HTML and “Print to PDF” in browser)
   return NextResponse.json(
     {
       ok: true,
       endpoint: "analysis/beliefs/report",
       report_id: reportId,
       report_json_url: jsonBlob.url,
-      report_html_url: htmlBlob.url
+      report_html_url: htmlBlob.url,
+      viewer_url
     },
     { status: 200 }
   );

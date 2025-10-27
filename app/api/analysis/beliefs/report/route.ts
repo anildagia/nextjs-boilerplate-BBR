@@ -3,25 +3,23 @@ import { requirePro } from "@/app/api/_lib/paywall";
 import { renderBeliefBlueprintHTML, type ReportMeta } from "@/app/api/_lib/report/beliefBlueprintHtml";
 import { enrichAnalysis } from "@/app/api/_lib/analysis/enrich";
 import type { AnalysisPayload } from "@/app/api/_lib/analysis/beliefs";
-// Use your existing blob helper if present; otherwise use the new one below:
 import { putBlob } from "@/app/api/_lib/blobAdapter";
 
 export const runtime = "nodejs";
 
 type ReportRequest = {
   analysis_id?: string;
-  analysis_payload?: AnalysisPayload; // allow passing payload directly
-  report_meta?: ReportMeta;           // { title, prepared_for, prepared_by, brand:{logoUrl,accentColor}, footer_note }
+  analysis_payload?: AnalysisPayload;
+  report_meta?: ReportMeta;
 };
 
 function getBaseUrl(req: Request) {
   let base = process.env.DOMAIN || "";
   if (!base) {
     const host = new URL(req.url).host;
-    const proto = (req.headers.get("x-forwarded-proto") || "https");
+    const proto = req.headers.get("x-forwarded-proto") || "https";
     base = `${proto}://${host}`;
   }
-  // ensure scheme present
   if (!/^https?:\/\//i.test(base)) base = `https://${base}`;
   return base.replace(/\/+$/, "");
 }
@@ -42,7 +40,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "Invalid JSON body" }, { status: 400 });
   }
 
-  // Accept either analysis_payload directly OR (future) we could fetch by analysis_id.
   if (!body.analysis_payload) {
     return NextResponse.json(
       { message: "Missing required field: analysis_payload" },
@@ -54,22 +51,17 @@ export async function POST(req: Request) {
   const meta = body.report_meta || {};
   const html = renderBeliefBlueprintHTML(extended, meta);
 
-  // Generate a reportId + blob paths
   const ts = Date.now();
   const reportId = `rpt-${ts}`;
 
-  // derive a stable owner key without relying on requirePro’s shape
   const ownerRaw =
     (body.report_meta?.prepared_by?.trim() ||
-     body.report_meta?.prepared_for?.trim() ||
-     "anon");
-  
+      body.report_meta?.prepared_for?.trim() ||
+      "anon");
   const ownerKey = ownerRaw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-
-  // where files will be stored
   const basePath = `reports/${ownerKey}/${reportId}`;
 
-  // 1) Store JSON (extended model)
+  // 1) Store JSON (extended analysis)
   const jsonBlob = await putBlob(
     `${basePath}.json`,
     JSON.stringify({ report_id: reportId, meta, extended }, null, 2),
@@ -83,32 +75,58 @@ export async function POST(req: Request) {
     "text/html; charset=utf-8"
   );
 
-  // 3) Call your existing PDF export endpoint to render the HTML → PDF
+  // 3) Generate base PDF via existing exporter, then fetch actual bytes
   const baseUrl = getBaseUrl(req);
-  const pdfRes = await fetch(`${baseUrl}/api/exports/pdf`, {
+  const pdfExportRes = await fetch(`${baseUrl}/api/exports/pdf`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      // Forward license header if your exporter is gated (usually not necessary):
-      ...(req.headers.get("X-License-Key") ? { "X-License-Key": req.headers.get("X-License-Key")! } : {}),
+      ...(req.headers.get("X-License-Key")
+        ? { "X-License-Key": req.headers.get("X-License-Key")! }
+        : {}),
     },
+    // Send minimal placeholder content for exporter
     body: JSON.stringify({
-      html,               // send raw HTML to your existing exporter
-      fileName: `${reportId}.pdf`, // optional; exporter may ignore
+      belief: "Belief Blueprint Summary",
+      steps: ["Generated automatically by Belief Blueprint system."],
+      plan: [],
     }),
   });
 
-  if (!pdfRes.ok) {
-    const txt = await pdfRes.text().catch(() => "");
+  if (!pdfExportRes.ok) {
+    const errText = await pdfExportRes.text().catch(() => "");
     return NextResponse.json(
-      { message: "PDF export failed", status: pdfRes.status, detail: txt.slice(0, 500) },
+      {
+        message: "PDF export failed",
+        status: pdfExportRes.status,
+        detail: errText.slice(0, 300),
+      },
       { status: 502 }
     );
   }
 
-  const pdfArrayBuffer = await pdfRes.arrayBuffer();
+  // Parse exporter response (JSON with .url)
+  const exportJson = await pdfExportRes.json().catch(() => ({}));
+  const exportUrl = exportJson?.url;
+  if (!exportUrl || typeof exportUrl !== "string") {
+    return NextResponse.json(
+      { message: "Exporter did not return a valid URL" },
+      { status: 502 }
+    );
+  }
 
-  // 4) Store PDF
+  // Download the actual PDF bytes from exporter Blob URL
+  const pdfDownloadRes = await fetch(exportUrl);
+  if (!pdfDownloadRes.ok) {
+    const msg = await pdfDownloadRes.text().catch(() => "");
+    return NextResponse.json(
+      { message: "Failed to download generated PDF", detail: msg.slice(0, 300) },
+      { status: 502 }
+    );
+  }
+  const pdfArrayBuffer = await pdfDownloadRes.arrayBuffer();
+
+  // 4) Store the real PDF bytes under your report path
   const pdfBlob = await putBlob(
     `${basePath}.pdf`,
     Buffer.from(pdfArrayBuffer),

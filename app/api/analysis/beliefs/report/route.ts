@@ -47,10 +47,12 @@ export async function POST(req: Request) {
     );
   }
 
+  // Build extended model + HTML
   const extended = enrichAnalysis(body.analysis_payload);
   const meta = body.report_meta || {};
   const html = renderBeliefBlueprintHTML(extended, meta);
 
+  // Report identifiers & storage base
   const ts = Date.now();
   const reportId = `rpt-${ts}`;
 
@@ -75,9 +77,9 @@ export async function POST(req: Request) {
     "text/html; charset=utf-8"
   );
 
-  // 3) Generate base PDF via existing exporter, then fetch actual bytes
+  // 3) Generate a PDF using the NEW independent report PDF route
   const baseUrl = getBaseUrl(req);
-  const pdfExportRes = await fetch(`${baseUrl}/api/exports/pdf`, {
+  const pdfRes = await fetch(`${baseUrl}/api/analysis/beliefs/report/pdf`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -85,38 +87,36 @@ export async function POST(req: Request) {
         ? { "X-License-Key": req.headers.get("X-License-Key")! }
         : {}),
     },
-    // Send minimal placeholder content for exporter
     body: JSON.stringify({
-      belief: "Belief Blueprint Summary",
-      steps: ["Generated automatically by Belief Blueprint system."],
-      plan: [],
+      extended,
+      report_meta: meta,
+      fileName: `${reportId}.pdf` // hint to the PDF route; it will append if needed
     }),
   });
 
-  if (!pdfExportRes.ok) {
-    const errText = await pdfExportRes.text().catch(() => "");
+  if (!pdfRes.ok) {
+    const errText = await pdfRes.text().catch(() => "");
     return NextResponse.json(
       {
-        message: "PDF export failed",
-        status: pdfExportRes.status,
+        message: "PDF generation failed",
+        status: pdfRes.status,
         detail: errText.slice(0, 300),
       },
       { status: 502 }
     );
   }
 
-  // Parse exporter response (JSON with .url)
-  const exportJson = await pdfExportRes.json().catch(() => ({}));
-  const exportUrl = exportJson?.url;
-  if (!exportUrl || typeof exportUrl !== "string") {
+  const pdfJson = await pdfRes.json().catch(() => ({} as any));
+  const generatedPdfUrl = pdfJson?.url;
+  if (!generatedPdfUrl || typeof generatedPdfUrl !== "string") {
     return NextResponse.json(
-      { message: "Exporter did not return a valid URL" },
+      { message: "PDF route did not return a valid URL" },
       { status: 502 }
     );
   }
 
-  // Download the actual PDF bytes from exporter Blob URL
-  const pdfDownloadRes = await fetch(exportUrl);
+  // Download the actual generated PDF bytes
+  const pdfDownloadRes = await fetch(generatedPdfUrl);
   if (!pdfDownloadRes.ok) {
     const msg = await pdfDownloadRes.text().catch(() => "");
     return NextResponse.json(
@@ -126,7 +126,7 @@ export async function POST(req: Request) {
   }
   const pdfArrayBuffer = await pdfDownloadRes.arrayBuffer();
 
-  // 4) Store the real PDF bytes under your report path
+  // 4) Store the PDF under your report path
   const pdfBlob = await putBlob(
     `${basePath}.pdf`,
     Buffer.from(pdfArrayBuffer),

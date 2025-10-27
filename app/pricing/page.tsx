@@ -54,7 +54,7 @@ export default function PricingPage() {
       <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>
         Belief Blueprint Analyzer — Licensed Features
       </h1>
-      <p style={{ color: "#444", marginBottom: 20 }}>
+      <div style={{ color: "#444", marginBottom: 20 }}>
         <ul style={{ color: "#555", fontSize: 14, margin: "0 0 12px 18px" }}>
           <li>Unlimited scans & reframes</li>
           <li>7-day micro-action plans & PDF export</li>
@@ -66,7 +66,7 @@ export default function PricingPage() {
           <li>Belief Blueprint Questionnaire Generator</li>
           <li>Belief Blueprint Analysis & Report</li>          
         </ul>
-      </p>
+      </div>
 
       {/* Currency Toggle */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>

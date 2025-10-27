@@ -1,4 +1,4 @@
-'use server';
+//'use server';
 // app/api/_lib/report/beliefBlueprintHtml.ts
 import type { AnalysisPayloadExtended } from "@/app/api/_lib/analysis/enrich";
 

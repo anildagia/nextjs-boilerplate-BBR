@@ -1,5 +1,8 @@
-// Minimal fallback that uses Vercel Blob REST API directly.
-// Works even if @vercel/blob package isn't installed.
+// Simple wrapper around the same Blob upload logic used in app/api/exports/pdf/route.ts.
+// This guarantees identical behavior for new features (HTML, JSON, PDF uploads).
+
+import { put } from "@vercel/blob";
+import { randomUUID } from "crypto";
 
 export interface PutResult {
   url: string;
@@ -9,45 +12,46 @@ export interface PutResult {
 }
 
 /**
- * Uploads data to the connected Vercel Blob store.
- * Automatically uses the system auth context inside Vercel.
+ * Uploads a file to the connected Vercel Blob store using the same
+ * pattern as exports/pdf/route.ts. Public by default.
  */
 export async function putBlob(
   pathname: string,
-  data: Blob | ArrayBuffer | Uint8Array | string,
+  data: string | Buffer | Uint8Array | ArrayBuffer | Blob,
   contentType = "application/octet-stream"
 ): Promise<PutResult> {
-  let body: Blob;
-
+  // Normalize data type
+  let body: Buffer | Uint8Array;
   if (typeof data === "string") {
-    body = new Blob([data], { type: contentType });
-  } else if (data instanceof Blob) {
-    body = data;
+    body = Buffer.from(data, "utf8");
   } else if (data instanceof ArrayBuffer) {
-    body = new Blob([data], { type: contentType });
+    body = Buffer.from(data);
   } else if (data instanceof Uint8Array) {
-    // ✅ convert Uint8Array to ArrayBuffer for TS compatibility
-    body = new Blob([data.buffer], { type: contentType });
+    body = data;
+  } else if (data instanceof Blob) {
+    const arrBuf = Buffer.from(await data.arrayBuffer());
+    body = arrBuf;
   } else {
-    throw new Error("Unsupported data type for blob upload");
+    body = data as any;
   }
 
-  const res = await fetch(
-    `https://api.vercel.com/v2/blob?pathname=${encodeURIComponent(pathname)}`,
-    {
-      method: "PUT",
-      headers: {
-        "Content-Type": contentType,
-        "x-vercel-bearer-token": process.env.BLOB_READ_WRITE_TOKEN || "",
-      },
-      body,
-    }
-  );
+  const putOpts: Parameters<typeof put>[2] = {
+    access: "public",
+    contentType,
+    ...(process.env.BLOB_READ_WRITE_TOKEN
+      ? { token: process.env.BLOB_READ_WRITE_TOKEN }
+      : {}),
+  };
 
-  if (!res.ok) {
-    const msg = await res.text().catch(() => res.statusText);
-    throw new Error(`Blob upload failed: ${res.status} ${msg}`);
-  }
+  const safePath = pathname.startsWith("reports/")
+    ? pathname
+    : `reports/${randomUUID()}-${pathname}`;
 
-  return (await res.json()) as PutResult;
+  const result = await put(safePath, body, putOpts);
+  return {
+    url: result.url,
+    pathname: safePath,
+    size: (body as any).length || undefined,
+    uploadedAt: new Date().toISOString(),
+  };
 }

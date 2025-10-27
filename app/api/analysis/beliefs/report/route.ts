@@ -77,9 +77,9 @@ export async function POST(req: Request) {
     "text/html; charset=utf-8"
   );
 
-  // 3) Generate a PDF using the NEW independent report PDF route
+  // 3) Generate a pixel-perfect PDF from the exact HTML using the new HTML→PDF route
   const baseUrl = getBaseUrl(req);
-  const pdfRes = await fetch(`${baseUrl}/api/analysis/beliefs/report/pdf`, {
+  const pdfRes = await fetch(`${baseUrl}/api/analysis/beliefs/report/pdf-html`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -88,9 +88,9 @@ export async function POST(req: Request) {
         : {}),
     },
     body: JSON.stringify({
-      extended,
-      report_meta: meta,
-      fileName: `${reportId}.pdf` // hint to the PDF route; it will append if needed
+      html,                      // render this exact HTML
+      fileName: `${reportId}.pdf`,
+      owner: ownerKey            // ensures neat Blob path under /reports/{owner}/
     }),
   });
 
@@ -107,32 +107,15 @@ export async function POST(req: Request) {
   }
 
   const pdfJson = await pdfRes.json().catch(() => ({} as any));
-  const generatedPdfUrl = pdfJson?.url;
-  if (!generatedPdfUrl || typeof generatedPdfUrl !== "string") {
+  const pdfUrl = pdfJson?.url;
+  if (!pdfUrl || typeof pdfUrl !== "string") {
     return NextResponse.json(
       { message: "PDF route did not return a valid URL" },
       { status: 502 }
     );
   }
 
-  // Download the actual generated PDF bytes
-  const pdfDownloadRes = await fetch(generatedPdfUrl);
-  if (!pdfDownloadRes.ok) {
-    const msg = await pdfDownloadRes.text().catch(() => "");
-    return NextResponse.json(
-      { message: "Failed to download generated PDF", detail: msg.slice(0, 300) },
-      { status: 502 }
-    );
-  }
-  const pdfArrayBuffer = await pdfDownloadRes.arrayBuffer();
-
-  // 4) Store the PDF under your report path
-  const pdfBlob = await putBlob(
-    `${basePath}.pdf`,
-    Buffer.from(pdfArrayBuffer),
-    "application/pdf"
-  );
-
+  // 4) Respond with all three URLs
   return NextResponse.json(
     {
       ok: true,
@@ -140,7 +123,7 @@ export async function POST(req: Request) {
       report_id: reportId,
       report_json_url: jsonBlob.url,
       report_html_url: htmlBlob.url,
-      report_pdf_url: pdfBlob.url,
+      report_pdf_url: pdfUrl,
     },
     { status: 200 }
   );

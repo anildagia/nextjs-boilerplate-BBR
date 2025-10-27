@@ -1,49 +1,43 @@
-// Tries to reuse an existing blob helper in your repo.
-// Falls back to @vercel/blob.put if nothing is found.
-// Additive-only; does not modify existing files.
+// Minimal fallback that uses Vercel Blob REST API directly.
+// Works even if @vercel/blob package isn't installed.
 
-type PutResult = { url: string; pathname?: string; size?: number; uploadedAt?: string };
-type PutFn = (pathname: string, data: any, contentType?: string) => Promise<PutResult>;
-
-let cached: PutFn | null = null;
-
-async function tryImport<T = any>(path: string): Promise<T | null> {
-  try { return (await import(path)) as T; } catch { return null; }
+export interface PutResult {
+  url: string;
+  pathname?: string;
+  size?: number;
+  uploadedAt?: string;
 }
 
-async function resolveImpl(): Promise<PutFn> {
-  // Common places teams keep a blob helper:
-  const candidates = [
-    "@/app/api/_lib/blob",           // e.g., export { putBlob } or export { put }
-    "@/app/api/_lib/storage/blob",
-    "@/app/_lib/blob",
-    "@/lib/blob",
-  ];
+/**
+ * Uploads data to the connected Vercel Blob store.
+ * Automatically uses the system auth context inside Vercel.
+ */
+export async function putBlob(
+  pathname: string,
+  data: Blob | ArrayBuffer | Uint8Array | string,
+  contentType = "application/octet-stream"
+): Promise<PutResult> {
+  // ensure we have a base64 string or ArrayBuffer
+  const body =
+    typeof data === "string"
+      ? new Blob([data], { type: contentType })
+      : data instanceof Blob
+      ? data
+      : new Blob([data], { type: contentType });
 
-  for (const p of candidates) {
-    const mod = await tryImport<any>(p);
-    if (!mod) continue;
+  const res = await fetch(`https://api.vercel.com/v2/blob?pathname=${encodeURIComponent(pathname)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": contentType,
+      "x-vercel-bearer-token": process.env.BLOB_READ_WRITE_TOKEN || "",
+    },
+    body,
+  });
 
-    if (typeof mod.putBlob === "function") {
-      // Signature: putBlob(path, data, contentType?)
-      return (pathname, data, contentType) => mod.putBlob(pathname, data, contentType);
-    }
-    if (typeof mod.put === "function") {
-      // Signature: put(path, data, { contentType, access })
-      return (pathname, data, contentType) => mod.put(pathname, data, { contentType, access: "public" });
-    }
+  if (!res.ok) {
+    const msg = await res.text().catch(() => res.statusText);
+    throw new Error(`Blob upload failed: ${res.status} ${msg}`);
   }
 
-  // Fallback to @vercel/blob
-  const vb = await tryImport<any>("@vercel/blob");
-  if (vb?.put) {
-    return (pathname, data, contentType) => vb.put(pathname, data, { contentType, access: "public" });
-  }
-
-  throw new Error("No blob helper found and @vercel/blob not available");
-}
-
-export async function putBlob(pathname: string, data: any, contentType?: string): Promise<PutResult> {
-  if (!cached) cached = await resolveImpl();
-  return cached(pathname, data, contentType);
+  return (await res.json()) as PutResult;
 }

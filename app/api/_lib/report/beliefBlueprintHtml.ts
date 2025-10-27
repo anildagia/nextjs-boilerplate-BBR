@@ -1,3 +1,4 @@
+'use server';
 // app/api/_lib/report/beliefBlueprintHtml.ts
 import type { AnalysisPayloadExtended } from "@/app/api/_lib/analysis/enrich";
 
@@ -70,7 +71,7 @@ export function renderBeliefBlueprintHTML(
   const logoUrl = meta.brand?.logoUrl;
 
   return `<!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />

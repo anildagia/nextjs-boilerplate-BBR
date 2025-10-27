@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   const blobPath = `reports/${ownerKey}/${baseName}.pdf`;
 
   // 2) Launch headless Chrome (serverless-friendly)
-  const exePath = await chromium.executablePath(); // ✅ call the function
+  const exePath = await chromium.executablePath();
   if (!exePath) {
     return NextResponse.json(
       { error: "CHROMIUM_PATH_MISSING", message: "Chromium executable path not found." },
@@ -48,13 +48,13 @@ export async function POST(req: NextRequest) {
   const browser = await puppeteer.launch({
     args: chromium.args,
     executablePath: exePath,
-    headless: chromium.headless, // true in serverless
+    headless: true, // ✅ use plain boolean; chromium.headless isn't in this version
   });
 
   try {
     const page = await browser.newPage();
 
-    // explicit viewport rather than chromium.defaultViewport (not present in some versions)
+    // Explicit viewport (since chromium.defaultViewport may not exist)
     await page.setViewport({ width: 1280, height: 1800, deviceScaleFactor: 1 });
 
     if (body.html) {

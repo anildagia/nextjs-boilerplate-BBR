@@ -1,5 +1,6 @@
 //'use server';
 // app/api/_lib/report/beliefBlueprintHtml.ts
+import "server-only";
 import type { AnalysisPayloadExtended } from "@/app/api/_lib/analysis/enrich";
 
 export interface ReportMeta {

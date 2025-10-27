@@ -15,13 +15,15 @@ type ReportRequest = {
 };
 
 function getBaseUrl(req: Request) {
-  // Prefer configured DOMAIN (e.g., https://belief-blueprint.vercel.app)
-  const env = process.env.DOMAIN;
-  if (env) return env.replace(/\/+$/, "");
-  // Fallback from request headers (works on Vercel)
-  const host = new URL(req.url).host;
-  const proto = (req.headers.get("x-forwarded-proto") || "https");
-  return `${proto}://${host}`;
+  let base = process.env.DOMAIN || "";
+  if (!base) {
+    const host = new URL(req.url).host;
+    const proto = (req.headers.get("x-forwarded-proto") || "https");
+    base = `${proto}://${host}`;
+  }
+  // ensure scheme present
+  if (!/^https?:\/\//i.test(base)) base = `https://${base}`;
+  return base.replace(/\/+$/, "");
 }
 
 export async function POST(req: Request) {

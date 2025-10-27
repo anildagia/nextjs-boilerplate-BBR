@@ -1,20 +1,23 @@
 // app/report/view/[reportId]/route.ts
-import { NextRequest } from "next/server";
 import { list } from "@vercel/blob";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * Find the HTML blob whose pathname ends with "/{reportId}.html"
- * anywhere under the "reports/" prefix.
- */
+/** Resolve params for Next 14/15 where context.params may be a Promise. */
+async function resolveParams<T extends object>(
+  maybeParams: T | Promise<T>
+): Promise<T> {
+  // @ts-expect-error - In Next 15 this can be a Promise
+  return typeof (maybeParams as any)?.then === "function"
+    ? await (maybeParams as Promise<T>)
+    : (maybeParams as T);
+}
+
+/** Find the HTML blob whose pathname ends with "/{reportId}.html" under "reports/". */
 async function findReportHtmlBlob(reportId: string) {
   let cursor: string | undefined = undefined;
 
-  // We page through the listing until we find a match.
-  // If your store gets huge, you can optimize by accepting an optional ?owner=
-  // and using prefix: `reports/${owner}/` — but per your requirement we search all owners.
   do {
     const res = await list({
       prefix: "reports/",
@@ -37,10 +40,13 @@ async function findReportHtmlBlob(reportId: string) {
 }
 
 export async function GET(
-  _req: NextRequest,
-  ctx: { params: { reportId: string } }
+  _req: Request,
+  context:
+    | { params: { reportId: string } }
+    | { params: Promise<{ reportId: string }> }
 ) {
-  const reportId = ctx.params.reportId;
+  const { reportId } = await resolveParams(context.params as any);
+
   if (!reportId) {
     return new Response(JSON.stringify({ message: "Missing reportId" }), {
       status: 400,
@@ -56,8 +62,8 @@ export async function GET(
     });
   }
 
-  // Fetch the saved HTML and return it AS-IS.
-  const res = await fetch(blob.url);
+  // Fetch and return the saved HTML AS-IS (logo/styles already embedded).
+  const res = await fetch(blob.url, { cache: "no-store" });
   if (!res.ok) {
     const msg = await res.text().catch(() => res.statusText);
     return new Response(
@@ -71,7 +77,6 @@ export async function GET(
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      // Let browser features like Print → Save as PDF work as the user sees it
       "X-Content-Type-Options": "nosniff",
       "Cache-Control": "no-store",
     },

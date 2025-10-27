@@ -17,22 +17,32 @@ export async function putBlob(
   data: Blob | ArrayBuffer | Uint8Array | string,
   contentType = "application/octet-stream"
 ): Promise<PutResult> {
-  // ensure we have a base64 string or ArrayBuffer
-  const body =
-    typeof data === "string"
-      ? new Blob([data], { type: contentType })
-      : data instanceof Blob
-      ? data
-      : new Blob([data], { type: contentType });
+  let body: Blob;
 
-  const res = await fetch(`https://api.vercel.com/v2/blob?pathname=${encodeURIComponent(pathname)}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": contentType,
-      "x-vercel-bearer-token": process.env.BLOB_READ_WRITE_TOKEN || "",
-    },
-    body,
-  });
+  if (typeof data === "string") {
+    body = new Blob([data], { type: contentType });
+  } else if (data instanceof Blob) {
+    body = data;
+  } else if (data instanceof ArrayBuffer) {
+    body = new Blob([data], { type: contentType });
+  } else if (data instanceof Uint8Array) {
+    // ✅ convert Uint8Array to ArrayBuffer for TS compatibility
+    body = new Blob([data.buffer], { type: contentType });
+  } else {
+    throw new Error("Unsupported data type for blob upload");
+  }
+
+  const res = await fetch(
+    `https://api.vercel.com/v2/blob?pathname=${encodeURIComponent(pathname)}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": contentType,
+        "x-vercel-bearer-token": process.env.BLOB_READ_WRITE_TOKEN || "",
+      },
+      body,
+    }
+  );
 
   if (!res.ok) {
     const msg = await res.text().catch(() => res.statusText);

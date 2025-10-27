@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type BlobListItem = {
-  pathname: string;  // e.g. reports/<owner>/rpt-1761562672200.html
+  pathname: string;  // e.g. "reports/5th-element/rpt-1761562672200.html"
   url: string;
   size?: number;
   uploadedAt?: string;
@@ -17,32 +17,36 @@ type ListResponse = {
   cursor?: string | null;
 };
 
-/**
- * Accept BOTH:
- *   reports/<owner>/rpt-<timestamp>.(html|json|pdf)
- *   reports/<owner>/rpt-<timestamp>-<random>.(html|json|pdf)  // future-proof
- *
- * Groups by {owner, rpt-<timestamp>}.
- *
- * Regex groups:
- *  1: owner
- *  2: report_id base (rpt-<timestamp>)
- *  3: timestamp (digits)
- *  4: optional random suffix (if present)
- *  5: extension (html|json|pdf)
- */
-const FILE_RE =
-  /^reports\/([^/]+)\/(rpt-(\d+))(?:-[A-Za-z0-9_-]+)?\.(html|json|pdf)$/i;
-
 type Row = {
-  owner: string;
-  report_id: string;      // rpt-<timestamp>
+  owner: string;        // folder under reports/
+  report_id: string;    // "rpt-<timestamp>"
   html_url?: string;
   json_url?: string;
-  pdf_url?: string;       // present if you kept older pdfs
-  viewer_url: string;     // /report/view/<report_id>
-  ts: number;             // numeric timestamp for sorting
+  pdf_url?: string;
+  viewer_url: string;   // /report/view/<report_id>
+  ts: number;           // numeric timestamp for sorting
 };
+
+// Parse "reports/<owner>/<filename>"
+function splitPath(pathname: string) {
+  const parts = String(pathname || "").split("/").filter(Boolean);
+  // expect at least ["reports", "<owner>", "<filename>"]
+  if (parts.length < 3 || parts[0] !== "reports") return null;
+  const owner = parts[1];
+  const filename = parts.slice(2).join("/"); // supports any deeper nesting if ever added
+  return { owner, filename };
+}
+
+// Parse "rpt-<timestamp>(-random)?.<ext>" → { report_id: "rpt-<ts>", ts: number, ext }
+function parseFilename(filename: string) {
+  // strict but guarded
+  const m = filename.match(/^(rpt-(\d+))(?:-[^.]+)?\.(html|json|pdf)$/i);
+  if (!m) return null;
+  const report_id = m[1];         // "rpt-<ts>"
+  const ts = Number(m[2]) || 0;   // numeric timestamp
+  const ext = m[3].toLowerCase(); // html|json|pdf
+  return { report_id, ts, ext };
+}
 
 export async function GET(req: NextRequest) {
   // Pro gate
@@ -59,6 +63,7 @@ export async function GET(req: NextRequest) {
   const origin = new URL(req.url).origin;
   const prefix = ownerFilter ? `reports/${ownerFilter}/` : "reports/";
 
+  // diagnostics
   const diag: Record<string, any> = {
     prefixUsed: prefix,
     ownerFilter,
@@ -67,7 +72,7 @@ export async function GET(req: NextRequest) {
     pagesScanned: 0,
     pageDiagnostics: [] as any[],
   };
-  console.log("[reports/list] START", { prefix, ownerFilter, limit, cursorIn, debug });
+  if (debug) console.log("[reports/list] START", { prefix, ownerFilter, limit, cursorIn, debug });
 
   const map = new Map<string, Row>(); // key: owner::report_id
   let cursor: string | undefined = cursorIn;
@@ -92,41 +97,46 @@ export async function GET(req: NextRequest) {
       samplePathnames: resp.blobs?.slice(0, 10).map((b) => b.pathname) || [],
       nextCursor: resp.cursor ?? null,
     };
+    if (debug) console.log("[reports/list] PAGE", pageInfo);
     diag.pageDiagnostics.push(pageInfo);
-    console.log("[reports/list] PAGE", pageInfo);
 
     for (const b of resp.blobs) {
-      const m = b.pathname.match(FILE_RE);
-      if (!m) {
-        if (debug) console.log("[reports/list] SKIP (no match to FILE_RE):", b.pathname);
+      const sp = splitPath(b.pathname);
+      if (!sp) {
+        if (debug) console.log("[reports/list] SKIP splitPath:", b.pathname);
         continue;
       }
-
-      const owner = m[1].toLowerCase();
-      const report_id = m[2].toLowerCase(); // rpt-<timestamp>
-      const tsNum = Number(m[3]) || 0;
-      const ext = m[5].toLowerCase();
-
+      const owner = (sp.owner || "").toLowerCase();
+      if (!owner) {
+        if (debug) console.log("[reports/list] SKIP ownerEmpty:", b.pathname);
+        continue;
+      }
       if (ownerFilter && owner !== ownerFilter) {
-        if (debug) console.log("[reports/list] SKIP (ownerFilter mismatch):", { owner, ownerFilter });
+        if (debug) console.log("[reports/list] SKIP ownerFilter mismatch:", { owner, ownerFilter });
         continue;
       }
 
-      const key = `${owner}::${report_id}`;
+      const pf = parseFilename(sp.filename);
+      if (!pf) {
+        if (debug) console.log("[reports/list] SKIP parseFilename:", sp.filename);
+        continue;
+      }
+
+      const key = `${owner}::${pf.report_id.toLowerCase()}`;
       let row = map.get(key);
       if (!row) {
         row = {
           owner,
-          report_id,
-          viewer_url: `${origin}/report/view/${report_id}`,
-          ts: tsNum,
+          report_id: pf.report_id.toLowerCase(),
+          viewer_url: `${origin}/report/view/${pf.report_id.toLowerCase()}`,
+          ts: pf.ts,
         };
         map.set(key, row);
       }
 
-      if (ext === "html") row.html_url = b.url;
-      else if (ext === "json") row.json_url = b.url;
-      else if (ext === "pdf") row.pdf_url = b.url;
+      if (pf.ext === "html") row.html_url = b.url;
+      else if (pf.ext === "json") row.json_url = b.url;
+      else if (pf.ext === "pdf") row.pdf_url = b.url;
     }
 
     cursor = (resp.cursor ?? undefined) as string | undefined;
@@ -137,7 +147,7 @@ export async function GET(req: NextRequest) {
     .filter((r) => r.html_url || r.json_url || r.pdf_url)
     .sort((a, b) => b.ts - a.ts);
 
-  console.log("[reports/list] DONE", { items: items.length, pagesScanned: pages });
+  if (debug) console.log("[reports/list] DONE", { items: items.length, pagesScanned: pages });
 
   const body: any = {
     ok: true,

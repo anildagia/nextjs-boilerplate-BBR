@@ -52,7 +52,7 @@ export default function PricingPage() {
       </div>
 
       <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>
-        Discovering Beliefs — Pro Features
+        Belief Blueprint Analyzer — Licensed Features
       </h1>
       <p style={{ color: "#444", marginBottom: 20 }}>
         <ul style={{ color: "#555", fontSize: 14, margin: "0 0 12px 18px" }}>

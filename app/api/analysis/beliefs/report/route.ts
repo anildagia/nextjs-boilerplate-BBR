@@ -6,6 +6,8 @@ import type { AnalysisPayload } from "@/app/api/_lib/analysis/beliefs";
 // Use your existing blob helper if present; otherwise use the new one below:
 import { putBlob } from "@/app/api/_lib/blobAdapter";
 
+export const runtime = "nodejs";
+
 type ReportRequest = {
   analysis_id?: string;
   analysis_payload?: AnalysisPayload; // allow passing payload directly

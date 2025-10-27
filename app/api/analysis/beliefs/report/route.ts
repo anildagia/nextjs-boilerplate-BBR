@@ -52,7 +52,7 @@ export async function POST(req: Request) {
   // 2) Build extended model + HTML
   const extended = enrichAnalysis(body.analysis_payload);
   const meta = body.report_meta || {};
-  const html = renderBeliefBlueprintHTML(extended, meta);
+  const htmlContent = renderBeliefBlueprintHTML(extended, meta);
 
   // 3) Names & storage paths
   const ts = Date.now();
@@ -76,7 +76,7 @@ export async function POST(req: Request) {
   // 5) Store HTML
   const htmlBlob = await putBlob(
     `${basePath}.html`,
-    html,
+    htmlContent,
     "text/html; charset=utf-8"
   );
 

@@ -1,4 +1,3 @@
-// app/api/reports/list/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { list } from "@vercel/blob";
 import { requirePro } from "@/app/api/_lib/paywall";
@@ -7,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type BlobListItem = {
-  pathname: string;  // e.g. "reports/5th-element/rpt-1761562672200.html"
+  pathname: string;  // e.g. "reports/5th-element/rpt-1761561067344-ABCD.html"
   url: string;
   size?: number;
   uploadedAt?: string;
@@ -22,24 +21,23 @@ type Row = {
   report_id: string;    // "rpt-<timestamp>"
   html_url?: string;
   json_url?: string;
-  pdf_url?: string;
+  pdf_url?: string;     // legacy files, if any
   viewer_url: string;   // /report/view/<report_id>
   ts: number;           // numeric timestamp for sorting
 };
 
-// Parse "reports/<owner>/<filename>"
+// Safely find "reports/<owner>/<filename>" anywhere in the path.
 function splitPath(pathname: string) {
   const parts = String(pathname || "").split("/").filter(Boolean);
-  // expect at least ["reports", "<owner>", "<filename>"]
-  if (parts.length < 3 || parts[0] !== "reports") return null;
-  const owner = parts[1];
-  const filename = parts.slice(2).join("/"); // supports any deeper nesting if ever added
+  const ix = parts.indexOf("reports");
+  if (ix < 0 || ix + 2 >= parts.length) return null;
+  const owner = parts[ix + 1];
+  const filename = parts.slice(ix + 2).join("/"); // support deeper nesting if it ever appears
   return { owner, filename };
 }
 
 // Parse "rpt-<timestamp>(-random)?.<ext>" → { report_id: "rpt-<ts>", ts: number, ext }
 function parseFilename(filename: string) {
-  // strict but guarded
   const m = filename.match(/^(rpt-(\d+))(?:-[^.]+)?\.(html|json|pdf)$/i);
   if (!m) return null;
   const report_id = m[1];         // "rpt-<ts>"
@@ -63,7 +61,6 @@ export async function GET(req: NextRequest) {
   const origin = new URL(req.url).origin;
   const prefix = ownerFilter ? `reports/${ownerFilter}/` : "reports/";
 
-  // diagnostics
   const diag: Record<string, any> = {
     prefixUsed: prefix,
     ownerFilter,
@@ -71,13 +68,14 @@ export async function GET(req: NextRequest) {
     startCursor: cursorIn || null,
     pagesScanned: 0,
     pageDiagnostics: [] as any[],
+    scanned: [] as any[], // per-blob logs in debug
   };
   if (debug) console.log("[reports/list] START", { prefix, ownerFilter, limit, cursorIn, debug });
 
   const map = new Map<string, Row>(); // key: owner::report_id
   let cursor: string | undefined = cursorIn;
   let pages = 0;
-  const maxPages = debug ? 5 : 1; // in debug, scan up to 5 pages
+  const maxPages = debug ? 5 : 1; // scan more pages in debug mode
 
   do {
     pages += 1;
@@ -101,27 +99,42 @@ export async function GET(req: NextRequest) {
     diag.pageDiagnostics.push(pageInfo);
 
     for (const b of resp.blobs) {
+      const entry: any = { pathname: b.pathname };
+
       const sp = splitPath(b.pathname);
       if (!sp) {
+        entry.skip = "splitPath-failed";
         if (debug) console.log("[reports/list] SKIP splitPath:", b.pathname);
+        diag.scanned.push(entry);
         continue;
       }
+      entry.ownerRaw = sp.owner;
+      entry.filename = sp.filename;
+
       const owner = (sp.owner || "").toLowerCase();
       if (!owner) {
+        entry.skip = "owner-empty";
         if (debug) console.log("[reports/list] SKIP ownerEmpty:", b.pathname);
+        diag.scanned.push(entry);
         continue;
       }
       if (ownerFilter && owner !== ownerFilter) {
+        entry.skip = "owner-filter-mismatch";
+        entry.owner = owner;
         if (debug) console.log("[reports/list] SKIP ownerFilter mismatch:", { owner, ownerFilter });
+        diag.scanned.push(entry);
         continue;
       }
 
       const pf = parseFilename(sp.filename);
       if (!pf) {
+        entry.skip = "parseFilename-failed";
         if (debug) console.log("[reports/list] SKIP parseFilename:", sp.filename);
+        diag.scanned.push(entry);
         continue;
       }
 
+      entry.parsed = pf;
       const key = `${owner}::${pf.report_id.toLowerCase()}`;
       let row = map.get(key);
       if (!row) {
@@ -133,10 +146,12 @@ export async function GET(req: NextRequest) {
         };
         map.set(key, row);
       }
-
       if (pf.ext === "html") row.html_url = b.url;
       else if (pf.ext === "json") row.json_url = b.url;
       else if (pf.ext === "pdf") row.pdf_url = b.url;
+
+      entry.included = true;
+      diag.scanned.push(entry);
     }
 
     cursor = (resp.cursor ?? undefined) as string | undefined;

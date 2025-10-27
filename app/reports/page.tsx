@@ -51,7 +51,16 @@ export default async function ReportsPage({
   const license = (searchParams?.license || "").trim() || undefined;
   const limit = Number(searchParams?.limit || 20) || 20;
 
-  const { items, cursor } = await fetchReports(owner, license, limit);
+  let items: Row[] = [];
+  let cursor: string | null = null;
+
+  if (license) {
+    const resp = await fetchReports(owner, license, limit);
+    items = resp.items || [];
+    cursor = resp.cursor ?? null;
+  }
+  
+  // const { items, cursor } = await fetchReports(owner, license, limit);
 
   return (
     <main className="min-h-screen bg-gray-50 p-6">

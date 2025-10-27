@@ -89,8 +89,8 @@ export async function GET(
     );
   }
 
-  const html = await fetchRes.text();
-  return new Response(html, {
+  const htmlContent = await fetchRes.text();
+  return new Response(htmlContent, {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",

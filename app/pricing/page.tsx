@@ -33,8 +33,8 @@ export default function PricingPage() {
   }
 
   // Display prices based on selected currency
-  const priceMonthly = currency === "INR" ? "₹697 + 18% GST" : "$9.99";
-  const priceAnnual  = currency === "INR" ? "₹6,997 + 18% GST" : "$99.99";
+  const priceMonthly = currency === "INR" ? "₹4,999 + 18% GST" : "$94.94";
+  const priceAnnual  = currency === "INR" ? "₹49,999 + 18% GST" : "$949";
 
   return (
     <main style={{ maxWidth: 720, margin: "40px auto", padding: 16, fontFamily: "system-ui" }}>
@@ -63,6 +63,8 @@ export default function PricingPage() {
           <li>Relationships & Boundaries Theme</li>
           <li>Leadership & Impostor Syndrome Theme</li>
           <li>Entrepreneur Risk-Tolerance Theme</li>
+          <li>Belief Blueprint Questionnaire Generator</li>
+          <li>Belief Blueprint Analysis & Report</li>          
         </ul>
       </p>
 

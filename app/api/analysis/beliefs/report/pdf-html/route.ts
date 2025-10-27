@@ -7,8 +7,7 @@ import puppeteer from "puppeteer-core";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// If your plan supports longer execution, you can uncomment:
-// export const maxDuration = 60;
+// export const maxDuration = 60; // optional if your plan supports it
 
 type PrintRequest = {
   html?: string;        // raw HTML string to render
@@ -38,7 +37,14 @@ export async function POST(req: NextRequest) {
   const blobPath = `reports/${ownerKey}/${baseName}.pdf`;
 
   // 2) Launch headless Chrome (serverless-friendly)
-  const exePath = await chromium.executablePath;
+  const exePath = await chromium.executablePath(); // ✅ call the function
+  if (!exePath) {
+    return NextResponse.json(
+      { error: "CHROMIUM_PATH_MISSING", message: "Chromium executable path not found." },
+      { status: 500 }
+    );
+  }
+
   const browser = await puppeteer.launch({
     args: chromium.args,
     executablePath: exePath,
@@ -48,7 +54,7 @@ export async function POST(req: NextRequest) {
   try {
     const page = await browser.newPage();
 
-    // (Optional) set a viewport explicitly instead of chromium.defaultViewport
+    // explicit viewport rather than chromium.defaultViewport (not present in some versions)
     await page.setViewport({ width: 1280, height: 1800, deviceScaleFactor: 1 });
 
     if (body.html) {

@@ -1,5 +1,5 @@
 // app/reports/page.tsx
-import { headers } from "next/headers";
+import { headers as nextHeaders } from "next/headers";
 export const dynamic = "force-dynamic";
 
 type Row = {
@@ -13,10 +13,10 @@ type Row = {
 };
 
 async function fetchReports(owner: string | undefined, license: string | undefined): Promise<{ items: Row[] }> {
-  // Build absolute base URL from incoming request
-  const hdrs = headers();
-  const host = hdrs.get("host") || "";
-  const proto = hdrs.get("x-forwarded-proto") || "https";
+  // Build absolute base URL from incoming request (Next 15-safe)
+  const hdrsList = (await (nextHeaders() as unknown as Promise<Headers>));
+  const host = hdrsList.get("host") || "";
+  const proto = hdrsList.get("x-forwarded-proto") || "https";
   const base = `${proto}://${host}`;
 
   const params = new URLSearchParams();
@@ -82,5 +82,5 @@ export default async function ReportsPage({ searchParams }: { searchParams: { ow
   );
 }
 
-// Inline client component import shim (co-located file below)
+// client subcomponent for copy buttons
 import ClientList from "./ClientList";

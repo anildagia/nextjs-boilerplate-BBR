@@ -45,13 +45,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  chromium.setHeadlessMode = true;
-  chromium.setGraphicsMode = false;
-  
   const browser = await puppeteer.launch({
     args: chromium.args,
     executablePath: exePath,
-    headless: true, // ✅ use plain boolean; chromium.headless isn't in this version
+    headless: true, // plain boolean; works on Vercel
   });
 
   try {

@@ -7,12 +7,13 @@ import puppeteer from "puppeteer-core";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// (optional, if your plan allows) export const maxDuration = 60;
+// If your plan supports longer execution, you can uncomment:
+// export const maxDuration = 60;
 
 type PrintRequest = {
-  html?: string;        // raw HTML to render
-  html_url?: string;    // OR a fully-qualified URL to render
-  fileName?: string;    // optional: "MyReport.pdf"
+  html?: string;        // raw HTML string to render
+  html_url?: string;    // OR an absolute https:// URL to render
+  fileName?: string;    // optional filename, ".pdf" appended automatically
   owner?: string;       // optional path segment for blob e.g. brand/user
 };
 
@@ -27,50 +28,47 @@ export async function POST(req: NextRequest) {
 
   // 1) Inputs
   const body = (await req.json().catch(() => ({}))) as PrintRequest;
+  if (!body.html && !body.html_url) {
+    return NextResponse.json({ message: "Provide either 'html' or 'html_url'." }, { status: 400 });
+  }
+
   const now = Date.now();
   const ownerKey = safeSlug(body.owner || "anon");
   const baseName = (body.fileName?.replace(/\.pdf$/i, "") || `belief-blueprint-${now}`);
   const blobPath = `reports/${ownerKey}/${baseName}.pdf`;
 
-  if (!body.html && !body.html_url) {
-    return NextResponse.json({ message: "Provide either 'html' or 'html_url'." }, { status: 400 });
-  }
-
   // 2) Launch headless Chrome (serverless-friendly)
-  // Tips:
-  //  - Inline CSS and images are safest. If using external resources, ensure HTTPS public URLs.
-  //  - Set printBackground:true so colors and backgrounds are printed.
   const exePath = await chromium.executablePath;
   const browser = await puppeteer.launch({
     args: chromium.args,
-    defaultViewport: chromium.defaultViewport,
     executablePath: exePath,
-    headless: chromium.headless, // true on server
+    headless: chromium.headless, // true in serverless
   });
 
   try {
     const page = await browser.newPage();
 
+    // (Optional) set a viewport explicitly instead of chromium.defaultViewport
+    await page.setViewport({ width: 1280, height: 1800, deviceScaleFactor: 1 });
+
     if (body.html) {
-      // Render from raw HTML
       await page.setContent(body.html, { waitUntil: "networkidle0" });
-    } else if (body.html_url) {
-      // Render a URL (must be absolute: https://...)
-      const url = body.html_url;
+    } else {
+      const url = String(body.html_url);
       if (!/^https?:\/\//i.test(url)) {
         return NextResponse.json({ message: "html_url must be absolute (https://...)" }, { status: 400 });
       }
       await page.goto(url, { waitUntil: "networkidle0" });
     }
 
-    // Optional: ensure print CSS applies (if you use @media print rules)
+    // If you use print-specific CSS:
     // await page.emulateMediaType("print");
 
     const pdfBytes = await page.pdf({
       format: "A4",
       printBackground: true,
       margin: { top: "12mm", right: "12mm", bottom: "14mm", left: "12mm" },
-      // preferCSSPageSize: true, // enable if you set @page size in CSS
+      // preferCSSPageSize: true,
     });
 
     // 3) Upload to Blob

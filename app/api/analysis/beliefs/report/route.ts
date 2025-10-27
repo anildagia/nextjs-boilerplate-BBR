@@ -4,7 +4,7 @@ import { renderBeliefBlueprintHTML, type ReportMeta } from "@/app/api/_lib/repor
 import { enrichAnalysis } from "@/app/api/_lib/analysis/enrich";
 import type { AnalysisPayload } from "@/app/api/_lib/analysis/beliefs";
 // Use your existing blob helper if present; otherwise use the new one below:
-import { putBlob } from "@/app/api/_lib/blobx";
+import { putBlob } from "@/app/api/_lib/blobAdapter";
 
 type ReportRequest = {
   analysis_id?: string;

@@ -1,0 +1,116 @@
+# ACTION EXAMPLES — QUESTIONNAIRE, ANALYSIS, REPORT (PRO ONLY)
+# Use these as canonical examples of how to call the API.
+# The assistant should follow these formats verbatim where applicable.
+
+[Questionnaire-001-Pro]
+Purpose: Design a questionnaire (draw out beliefs) from a user-provided scenario/context.
+Action: questionnairesDesign
+HTTP: POST /api/questionnaires/design
+Headers:
+  X-License-Key: {{savedLicense}}
+Body:
+  {
+    "scenario": "<context from user>",
+    "target_role": "<who will answer>",
+    "constraints": {
+      "length": 12,
+      "tone": "supportive|neutral|provocative",
+      "mix": { "open": 0.7, "scale": 0.2, "forced": 0.1 }
+    },
+    "kn_ref": ["kb:questionnaire:sample1", "kb:questionnaire:sample2"]  // optional; sample questionnaires in knowledge files
+  }
+Expected (200 OK):
+  {
+    "id": "qstn_2025xxxx",
+    "scenario": "...",
+    "design": {
+      "purpose": "...",
+      "parameters": { "length": 12, "tone": "supportive", "mix": {...} },
+      "sections": [
+        { "title": "Warm-up (safety)", "items": ["...","..."] },
+        { "title": "Belief cues", "items": ["..."] },
+        { "title": "Contradiction probes", "items": ["..."] },
+        { "title": "Socratic mini-prompts", "items": ["..."] }
+      ]
+    }
+  }
+Errors:
+  402 if inactive license → assistant shows upgrade CTA and stops.
+
+[Questionnaire-002-Pro-Params]
+Purpose: Regenerate questionnaire with different parameters (length/tone/mix).
+Action: questionnairesDesign
+HTTP: POST /api/questionnaires/design
+Headers:
+  X-License-Key: {{savedLicense}}
+Body:
+  {
+    "scenario": "<same or refined>",
+    "target_role": "<persona>",
+    "constraints": { "length": 8, "tone": "neutral", "mix": { "open": 0.5, "scale": 0.3, "forced": 0.2 } }
+  }
+Expected:
+  200 OK with updated "design" and item counts as requested.
+
+[Analysis-001-Pro]
+Purpose: Analyze responses to the questionnaire and produce a complete belief analysis.
+Action: beliefsAnalyzeFromResponses
+HTTP: POST /api/analysis/beliefs
+Headers:
+  X-License-Key: {{savedLicense}}
+Body:
+  {
+    "questionnaire_id": "qstn_2025xxxx",
+    "responses": [
+      { "q": "<text of question 1>", "a": "<verbatim answer>" },
+      { "q": "<text of question 2>", "a": "<verbatim answer>" }
+    ],
+    "options": {
+      "depth": "deep",              // or "standard"
+      "gentle_mode": false
+    }
+  }
+Expected:
+  {
+    "analysis_id": "an_2025xxxx",
+    "executive_snapshot": { "core_identity_belief": "...", "competing_belief": "...", "family_imprint": "...", "justice_trigger": "..." },
+    "patterns": [ { "name": "...", "pull": [...], "push": [...], "origin": "...", "effect": "..." } ],
+    "belief_map": [ { "belief": "...", "impact": "...", "language_tells": ["..."], "origin_cues": ["..."], "model_tag": "..." } ],
+    "reframes": [ { "from": "...", "to": "...", "why_this_matters": "...", "meaning": "...", "actions": ["..."], "example": "..." } ],
+    "action_plan": { "days_1_30": ["..."], "days_31_60": ["..."], "days_61_90": ["..."] },
+    "triggers_swaps": [ { "trigger": "...", "swap": "..." } ],
+    "language_cues_challenges": [ { "cue": "...", "method": "..." } ],
+    "measures_of_progress": [ { "label": "...", "type": "weekly", "template": "..." } ],
+    "affirmations": ["...","..."],
+    "summary": "..."
+  }
+Errors:
+  402 if inactive license → assistant shows upgrade CTA and stops.
+
+[Report-001-Pro-HTML+JSON]
+Purpose: Generate & persist the Belief Blueprint report (store JSON + HTML; user can print/save to PDF locally).
+Action: beliefsReport
+HTTP: POST /api/analysis/beliefs/report
+Headers:
+  X-License-Key: {{savedLicense}}
+Body:
+  {
+    "analysis_payload": { ...the payload you used above... },
+    "report_meta": {
+      "title": "Belief Blueprint — Report",
+      "prepared_for": "<client name>",
+      "prepared_by": "<coach/brand>",
+      "brand": { "logoUrl": "<https url>", "accentColor": "#005bbb" },
+      "footer_note": "Coaching guidance, not therapy. If distressed, use local crisis resources."
+    }
+  }
+Expected:
+  200 OK with {
+    "ok": true,
+    "report_id": "rpt-<timestamp>",
+    "report_json_url": "https://.../reports/<owner>/<rpt>/rpt-....json",
+    "report_html_url": "https://.../reports/<owner>/<rpt>/rpt-....html"
+  }
+Notes:
+  - No server-side PDF generation. Open report_html_url in the browser → Print → Save as PDF (enable “Background graphics”).
+  - Owner key is derived from prepared_by or prepared_for for neat paths.

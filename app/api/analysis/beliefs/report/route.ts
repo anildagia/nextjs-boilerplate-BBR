@@ -2,7 +2,17 @@
 import { NextResponse } from "next/server";
 import { requirePro } from "@/app/api/_lib/paywall";
 import { renderBeliefBlueprintHTML, type ReportMeta } from "@/app/api/_lib/report/beliefBlueprintHtml";
-import { enrichAnalysis, type AnalysisPayloadExtended } from "@/app/api/_lib/analysis/enrich";
+import {
+  enrichAnalysis,
+  type AnalysisPayloadExtended,
+  type Pattern,
+  type BeliefMapItem,
+  type SocraticDialogue,
+  type Reframe,
+  type ActionPlan,
+  type TriggerSwap,
+  type CueChallenge,
+} from "@/app/api/_lib/analysis/enrich";
 import type { AnalysisPayload } from "@/app/api/_lib/analysis/beliefs";
 import { putBlob } from "@/app/api/_lib/blobAdapter";
 
@@ -29,58 +39,70 @@ function getBaseUrl(req: Request) {
 function mkTraceId() {
   return `rpt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
-const isArr = (v: any): v is any[] => Array.isArray(v);
-const arr = <T>(v: any, fb: T[] = []): T[] => (Array.isArray(v) ? v : fb);
-const obj = <T extends object>(v: any, fb: T): T => (v && typeof v === "object" ? (v as T) : fb);
 const str = (v: any, fb = ""): string => (typeof v === "string" ? v : fb);
+
+// ✅ Typed helpers
+function needArr<T>(name: string, v: unknown, fallback: T[] = []): T[] {
+  if (Array.isArray(v)) return v as T[];
+  return fallback;
+}
+function needObj<T extends object>(name: string, v: unknown, fallback: T): T {
+  if (v && typeof v === "object") return v as T;
+  return fallback;
+}
 
 // Ensure the extended shape is fully safe for the HTML renderer
 function normalizeExtended(raw: AnalysisPayloadExtended): AnalysisPayloadExtended {
-  const missing: string[] = [];
-
-  function needArr(name: string, v: any) {
-    if (!Array.isArray(v)) missing.push(name);
-    return arr(v);
-  }
-  function needObj<T extends object>(name: string, v: any, fb: T): T {
-    if (!(v && typeof v === "object")) missing.push(name);
-    return obj<T>(v, fb);
-  }
-
   const normalized: AnalysisPayloadExtended = {
     summary: str(raw?.summary, ""),
 
-    executive_snapshot: needObj("executive_snapshot", raw?.executive_snapshot, {
-      core_identity_belief: "",
-      competing_belief: "",
-      family_imprint: "",
-      justice_trigger: "",
-      present_contradiction: "",
-    }),
+    executive_snapshot: needObj<AnalysisPayloadExtended["executive_snapshot"]>(
+      "executive_snapshot",
+      raw?.executive_snapshot,
+      {
+        core_identity_belief: "",
+        competing_belief: "",
+        family_imprint: "",
+        justice_trigger: "",
+        present_contradiction: "",
+      }
+    ),
 
-    patterns: needArr("patterns", raw?.patterns),
-    belief_map: needArr("belief_map", raw?.belief_map),
-    strengths: needArr("strengths", raw?.strengths),
-    socratic_dialogues: needArr("socratic_dialogues", raw?.socratic_dialogues),
-    reframes: needArr("reframes", raw?.reframes),
+    patterns: needArr<Pattern>("patterns", raw?.patterns),
+    belief_map: needArr<BeliefMapItem>("belief_map", raw?.belief_map),
+    strengths: needArr<string>("strengths", raw?.strengths),
+    socratic_dialogues: needArr<SocraticDialogue>("socratic_dialogues", raw?.socratic_dialogues),
+    reframes: needArr<Reframe>("reframes", raw?.reframes),
 
-    action_plan: needObj("action_plan", raw?.action_plan, {
+    action_plan: needObj<ActionPlan>("action_plan", raw?.action_plan, {
       days_1_30: [],
       days_31_60: [],
       days_61_90: [],
     }),
-    triggers_swaps: needArr("triggers_swaps", raw?.triggers_swaps),
-    language_cues_challenges: needArr("language_cues_challenges", raw?.language_cues_challenges),
-    measures_of_progress: needArr("measures_of_progress", raw?.measures_of_progress),
-    affirmations: needArr("affirmations", raw?.affirmations),
-    salient_themes: needArr("salient_themes", raw?.salient_themes),
 
-    limiting_beliefs: needArr("limiting_beliefs", raw?.limiting_beliefs),
-    supporting_beliefs: needArr("supporting_beliefs", raw?.supporting_beliefs),
+    triggers_swaps: needArr<TriggerSwap>("triggers_swaps", raw?.triggers_swaps),
+    language_cues_challenges: needArr<CueChallenge>(
+      "language_cues_challenges",
+      raw?.language_cues_challenges
+    ),
+
+    measures_of_progress: needArr<AnalysisPayloadExtended["measures_of_progress"][number]>(
+      "measures_of_progress",
+      raw?.measures_of_progress
+    ),
+    affirmations: needArr<string>("affirmations", raw?.affirmations),
+    salient_themes: needArr<string>("salient_themes", raw?.salient_themes),
+
+    limiting_beliefs: needArr<AnalysisPayloadExtended["limiting_beliefs"][number]>(
+      "limiting_beliefs",
+      raw?.limiting_beliefs
+    ),
+    supporting_beliefs: needArr<AnalysisPayloadExtended["supporting_beliefs"][number]>(
+      "supporting_beliefs",
+      raw?.supporting_beliefs
+    ),
   };
 
-  // Attach a hidden property for diagnostics (not persisted)
-  (normalized as any).__missing = missing;
   return normalized;
 }
 
@@ -137,11 +159,9 @@ export async function POST(req: Request) {
 
   // 2a) Last-mile normalization (guarantees renderer safety even with ultra-thin payloads)
   const extended = normalizeExtended(extendedRaw);
-  const missing = (extended as any).__missing as string[] | undefined;
 
   console.log("[report] NORMALIZE", {
     traceId,
-    missing: missing || [],
     extended_keys: Object.keys(extendedRaw || {}),
     meta_keys: Object.keys(body.report_meta || {}),
   });
@@ -155,15 +175,6 @@ export async function POST(req: Request) {
     console.error("[report] RENDER_ERROR", {
       traceId,
       message: e?.message || String(e),
-      shapes: {
-        patterns: Array.isArray(extended.patterns),
-        belief_map: Array.isArray(extended.belief_map),
-        action_plan: {
-          d1: Array.isArray(extended.action_plan?.days_1_30),
-          d2: Array.isArray(extended.action_plan?.days_31_60),
-          d3: Array.isArray(extended.action_plan?.days_61_90),
-        },
-      },
     });
     const resp = NextResponse.json(
       { error: "RENDER_ERROR", message: "Could not render HTML." },

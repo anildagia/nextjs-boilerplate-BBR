@@ -1,6 +1,14 @@
-# ACTION EXAMPLES — TRIAL BOOT, SCAN, PRO FLOWS
-# Use these as canonical examples of how to call the API.
-# The assistant should follow these formats verbatim where applicable.
+# ACTION EXAMPLES — TRIAL/PRO + LOCAL GENERATION (CANONICAL)
+# Use these formats verbatim. Server calls only for: trial boot/status, beliefs/scan (free),
+# reframe (pro), actions/plan (pro), libraries (preview + full), export/pdf (pro).
+# Questionnaire & Report are now LOCAL (no API call) — GPT returns structured JSON.
+
+[Guard-000]
+Purpose: Never invoke Pro endpoints unless license is active OR trial is active. Always boot first.
+Flow:
+  1) Call BootCall-001 (only once per new chat). Cache result.
+  2) For any Pro call, ensure licenseStatus==active; if not active, show upgrade CTA and STOP that flow.
+  3) For free scan: allowed if trial active (server enforces daily quota). If 402/429 → explain + /pricing.
 
 [BootCall-001]
 Purpose: First message in a new chat — start/read the trial BEFORE any other endpoint.
@@ -8,36 +16,44 @@ Action: trialBoot
 HTTP:
   - If user email is known:   GET /api/trial/boot?email={{user.email}}
   - Else (fallback cookie):   GET /api/trial/boot
-Expected Outcome (200 OK):
+Expected 200 OK:
   {
-    "trial": "started" | "ok" | "active" | "expired",
+    "trial": "active" | "expired",
     "startedAt": "<ISO8601?>",
     "expiresAt": "<ISO8601?>",
     "daysTotal": <number?>,
     "daysUsed": <number?>,
-    "active": <boolean?>
+    "mode": "email" | "cookie",
+    "message": "<string>"
   }
 UI Rules:
   - If trial in ["started","ok","active"] → compute dayIndex = min(daysTotal, daysUsed+1) when fields exist,
     then say: "Free trial active — day {dayIndex} of {daysTotal}."
-  - If trial == "expired" OR response status is 402 → show upgrade CTA and STOP that flow.
-Notes:
-  - Call this exactly once per new conversation (cache the result for this chat).
-  - Do not block the user to collect email; use cookie fallback when email is unknown.
+  - If trial == "expired" → show upgrade CTA and STOP any Pro/scan flows (user may still chat, but no API calls).
 
+[LicenseStatus-001]
+Purpose: On-demand check of license/trial.
+Action: licenseStatus
+HTTP: GET /api/license/status?key={{savedLicense?}}
+Expected 200 OK:
+  { "status": "active" | "inactive", "plan":"pro"|"free"|"...", "expiresAt": "<ISO8601?>", "features":[...] }
+UI:
+  - status=="active" → Pro features allowed.
+  - else → show upgrade CTA and STOP Pro flows.
 
 [Scan-001-FreeDuringTrial]
-Purpose: Identify a limiting belief (always use the API; no local inference).
+Purpose: Identify a limiting belief (always use the API; no local inference for scans).
 Action: beliefsScan
 HTTP: POST /api/beliefs/scan
 Body:
   {
     "situation": "<user words>",
-    "emotion": "<user words or inferred>",
-    "anonId": "guest-{{hash(user.first_message)}}"
+    "emotion":   "<user words or inferred>",
+    "anonId":    "guest-{{hash(first_user_message)}}"  # if no email
   }
 Expected Outcomes:
-  - 200 OK with { "belief", "prompts": [...], "severity": 1-10, "safety": "..." }
+  - 200 OK → { "belief": "<string>", "prompts": ["..."], "severity": <int 1-10>, "safety": "<string>" }
+Errors:
   - 402 PaymentRequired if trial expired (assistant shows upgrade CTA and stops).
   - 429 Too Many Requests if daily free quota hit (assistant explains limit and points to /pricing).
 Notes:
@@ -49,32 +65,157 @@ Purpose: Pro reframe after license is active.
 Action: beliefsReframe
 HTTP: POST /api/beliefs/reframe?key={{savedLicense}}
 Body:
-  { "belief": "<text>", "context": "<optional>" }
+  { "belief": "<text>", "context": "<optional context>" }
 Expected:
   200 OK with { "belief", "context", "steps": [...], "note": "..." }
 Errors:
   402 if inactive license → assistant shows upgrade CTA and stops.
 
 [Plan-001-Pro]
+Purpose: 7-day micro-action plan (Pro).
 Action: actionsPlan
 HTTP: POST /api/actions/plan?key={{savedLicense}}
 Body:
   { "belief": "<text>", "goal": "<text>" }
 Expected:
-  200 OK with { "belief", "goal", "plan": [...], "cautions": [...] }
+  200 OK with { "belief", "goal", "plan": ["Day 1: …", ...], "cautions": ["..."] }
 
-[Libraries-001-Pro]
+[Libraries-Preview-001-Free]
+Purpose: Show available themes with free preview.
+Action: listThemes
+HTTP: GET /api/libraries/themes
+Expected:
+  200 OK → { "themes":[{ "key","title","count"}...], "preview":[{ "theme","items":[...] }...] }
+UI: Show up to ~10 preview items total.
+
+[Libraries-GetTheme-001-Pro]
+Purpose: Full theme (Pro).
 Action: getTheme
 HTTP: GET /api/libraries/{theme}?key={{savedLicense}}
 Params:
   theme: "health_discipline" | "leadership_imposter" | "money_beliefs" | "relationships_boundaries" | "entrepreneur_risk_tolerance"
 Expected:
-  200 OK with { "key", "title", "items": [...] }
+  200 OK with { "key","title","items":[ "...", ... ] }
+Errors: 402/403/404 → explain & STOP.
 
 [Export-001-Pro]
+Purpose: Export reframe/plan summary to PDF (Pro). Returns public URL.
 Action: exportPdf
 HTTP: POST /api/exports/pdf?key={{savedLicense}}
 Body:
   { "belief": "<text>", "steps": ["..."], "plan": ["..."] }
 Expected:
-  200 OK with { "fileName", "url", "bytes" }
+  200 OK with { "fileName":"...", "url":"https://...pdf", "bytes": <number> }
+
+# --------- LOCAL GENERATION (NO SERVER CALL) ---------
+
+[Questionnaire-Local-001]
+Purpose: Build a belief-eliciting questionnaire in the chat (front-end renders; NO API CALL).
+Action: none (local generation)
+Input (from user): 
+  {
+    "context": "<user's scenario or goal>",
+    "target_role": "<optional>",
+    "constraints": { "length": "short|medium|long", "tone": "gentle|direct|coach-like", "mix": { "open": <0-1>, "scale": <0-1>, "forced": <0-1> } }
+  }
+Return (exact JSON block first, then a short human summary):
+  {
+    "questionnaire_id": "q-{{timestamp}}",
+    "title": "Belief Discovery Questionnaire",
+    "intro": "One-paragraph warm intro aligned to tone/context.",
+    "sections": [
+      {
+        "title": "Context & Goals",
+        "items": [
+          { "id":"q1", "type":"open",  "prompt":"..." },
+          { "id":"q2", "type":"scale", "prompt":"...", "scale":{"min":1,"max":10,"labels":["Low","High"]} }
+        ]
+      },
+      {
+        "title":"Belief Cues",
+        "items":[
+          { "id":"q3", "type":"open",  "prompt":"When you think about <X>, what self-talk appears?" },
+          { "id":"q4", "type":"forced", "prompt":"Which statement feels truer now?", "options":["…","…"] }
+        ]
+      }
+    ],
+    "privacy_note": "Not therapy; if distressed, seek local crisis resources."
+  }
+Notes:
+  - Keep 10–18 items total depending on constraints.length.
+  - Use client’s words; avoid clinical jargon; respect Gentle Mode if enabled.
+
+[Report-Local-001]
+Purpose: Produce a Belief Blueprint report payload in chat (NO API CALL). The front-end will render HTML/JSON.
+Action: none (local generation)
+Input: 
+  {
+    "analysis_payload": {
+      "analysis_id": "an-{{timestamp}}",
+      "questionnaire_id": "q-{{id?}}",
+      "summary": "<1–3 sentences>",
+      "salient_themes": ["..."],
+      "limiting_beliefs": [
+        { "belief":"...", "evidence_from_responses":[{"snippet":"..."}], "confidence": 0.72 }
+      ],
+      "supporting_beliefs": [
+        { "belief":"..." , "confidence": 0.55 }
+      ],
+      "contradictions": [ { "hypothesis":"...", "notes":"..." } ],
+      "emotional_markers": [ { "label":"shame", "snippets":["..."] } ],
+      "language_patterns": ["absolutist_language","moralizing_terms"],
+      "recommendations": ["..."],
+
+      # Expanded fields used by the HTML renderer:
+      "executive_snapshot": {
+        "core_identity_belief": "...",
+        "competing_belief":    "...",
+        "family_imprint":      "...",
+        "justice_trigger":     "...",
+        "present_contradiction":"..."
+      },
+      "patterns": [
+        { "name":"People-pleasing", "pull":["belonging"], "push":["conflict"], "earliest_memory":"...", "origin":"...", "effect":"..." }
+      ],
+      "belief_map": [
+        { "belief":"...", "impact":"...", "language_tells":["..."], "origin_cues":["..."], "model_tag":"..." }
+      ],
+      "socratic_dialogues": [
+        { "belief":"...", "pattern":"scope challenge", "prompts":["Q1","Q2","Q3","Q4","Q5"] }
+      ],
+      "reframes": [
+        { "from":"...", "to":"...", "why_this_matters":"...", "meaning":"...", "actions":["...","..."], "example":"..." }
+      ],
+      "action_plan": {
+        "days_1_30": ["..."],
+        "days_31_60":["..."],
+        "days_61_90":["..."]
+      },
+      "triggers_swaps": [ { "trigger":"...", "swap":"..." } ],
+      "language_cues_challenges": [ { "cue":"always/never", "method":"scope challenge — when specifically?" } ],
+      "measures_of_progress": [ { "label":"Weekly outreach", "type":"counter", "template":"__ / 5" } ],
+      "affirmations": ["...","..."]
+    },
+    "report_meta": {
+      "title": "Belief Blueprint Report",
+      "prepared_for": "<name?>",
+      "prepared_by":  "5th Element",
+      "brand": { "logoUrl": "https://...", "accentColor": "#0D9488" },
+      "footer_note": "© 2025 5th Element"
+    }
+  }
+Return:
+  - The exact JSON block above, fully populated from the chat analysis.
+  - Then a short human-readable summary using the Output template (Summary / What I heard / Reframes & Plan / Gentle Mode / Next step).
+Notes:
+  - Do NOT call any server API for report generation. Front-end will render HTML from this JSON via local renderer.
+
+[OutputTemplate-UX]
+For any substantive result, show:
+  - Summary — one-line outcome.
+  - What I heard — key beliefs/patterns (quote phrases; name cues).
+  - Reframe / Plan / Questionnaire — numbered, specific; note method/patterns.
+  - Gentle Mode — note if used and soften phrasing.
+  - Next step — one small action.
+  - (If Export used) Include the returned PDF URL.
+

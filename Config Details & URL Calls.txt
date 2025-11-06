@@ -1,7 +1,5 @@
 Belief Blueprint Analyzer Custom GPT
 
-whsec_G98XueDNspprRrGEYMdVnNaPdZ5w055w
-
 PRICE_PRO_MONTHLY_INR		4,999 + 18% GST		price_1SMkrdSFQcdmq2ng8fBUtVpr
 PRICE_PRO_ANNUAL_INR		49,999 + 18% GST		price_1SMkt0SFQcdmq2ngx3XLeBjV
 PRICE_PRO_MONTHLY_USD	94.94				price_1SMksJSFQcdmq2ngONn6a4IT

@@ -78,27 +78,3 @@ Body:
   { "belief": "<text>", "steps": ["..."], "plan": ["..."] }
 Expected:
   200 OK with { "fileName", "url", "bytes" }
-
-[Journal-001-Pro-Save]
-Action: journalSave
-HTTP: POST /api/journal/entries?key={{savedLicense}}
-Body:
-  {
-    "templateId": "<one of your templates or 'custom'>",
-    "title": "<short>",
-    "payload": { "belief": "<text>", "steps": ["..."], "summary": "<optional>" }
-  }
-Expected:
-  200 OK with { "id", "title", "savedAt", "url" }
-
-[Journal-002-Pro-List]
-Action: journalList
-HTTP: GET /api/journal/entries?key={{savedLicense}}
-Expected:
-  200 OK with { "entries": [{ "id", "title", "createdAt", "url" }, ...] }
-
-[Journal-003-Pro-Fetch]
-Action: journalFetch
-HTTP: GET /api/journal/entries/{id}?key={{savedLicense}}
-Expected:
-  200 OK with full payload

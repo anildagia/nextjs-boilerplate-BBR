@@ -145,10 +145,14 @@ export function renderBeliefBlueprintHTML(
     <div class="card">
       <h2>Strengths & Empowering Beliefs</h2>
       ${li(strengths)}
-      ${supporting_beliefs?.length ? `
-        <h3>Supporting Beliefs Detected</h3>
-        <ul>${supporting_beliefs.map(b => `<li>${esc(b.belief)} (confidence ${(b.confidence*100|0)}%)</li>`).join("")}</ul>
-      ` : ""}
+          ${supporting_beliefs?.length ? `
+            <h3>Supporting Beliefs Detected</h3>
+            <ul>${
+                  supporting_beliefs
+                  .map(b => `<li>${esc(b.belief)} (confidence ${(((b?.confidence ?? 0) * 100) | 0)}%)</li>`)
+                .join("")
+                  }</ul>
+          ` : ""}
     </div>
 
     <div class="card">

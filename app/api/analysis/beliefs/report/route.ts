@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { requirePro } from "@/app/api/_lib/paywall";
 import { renderBeliefBlueprintHTML, type ReportMeta } from "@/app/api/_lib/report/beliefBlueprintHtml";
-import { enrichAnalysis } from "@/app/api/_lib/analysis/enrich";
+import { enrichAnalysis, type AnalysisPayloadExtended } from "@/app/api/_lib/analysis/enrich";
 import type { AnalysisPayload } from "@/app/api/_lib/analysis/beliefs";
 import { putBlob } from "@/app/api/_lib/blobAdapter";
 
@@ -25,19 +25,63 @@ function getBaseUrl(req: Request) {
   return base.replace(/\/+$/, "");
 }
 
-// --- debug helpers (no behavior change) ---
+// --- small helpers for last-mile normalization and debug ---
 function mkTraceId() {
-  // simple, stable-enough traceId for log correlation
   return `rpt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
-function safeLen(v: unknown) {
-  try {
-    if (!v) return 0;
-    if (typeof v === "string") return v.length;
-    if (Array.isArray(v)) return v.length;
-    if (typeof v === "object") return Object.keys(v as any).length;
-    return 0;
-  } catch { return 0; }
+const isArr = (v: any): v is any[] => Array.isArray(v);
+const arr = <T>(v: any, fb: T[] = []): T[] => (Array.isArray(v) ? v : fb);
+const obj = <T extends object>(v: any, fb: T): T => (v && typeof v === "object" ? (v as T) : fb);
+const str = (v: any, fb = ""): string => (typeof v === "string" ? v : fb);
+
+// Ensure the extended shape is fully safe for the HTML renderer
+function normalizeExtended(raw: AnalysisPayloadExtended): AnalysisPayloadExtended {
+  const missing: string[] = [];
+
+  function needArr(name: string, v: any) {
+    if (!Array.isArray(v)) missing.push(name);
+    return arr(v);
+  }
+  function needObj<T extends object>(name: string, v: any, fb: T): T {
+    if (!(v && typeof v === "object")) missing.push(name);
+    return obj<T>(v, fb);
+  }
+
+  const normalized: AnalysisPayloadExtended = {
+    summary: str(raw?.summary, ""),
+
+    executive_snapshot: needObj("executive_snapshot", raw?.executive_snapshot, {
+      core_identity_belief: "",
+      competing_belief: "",
+      family_imprint: "",
+      justice_trigger: "",
+      present_contradiction: "",
+    }),
+
+    patterns: needArr("patterns", raw?.patterns),
+    belief_map: needArr("belief_map", raw?.belief_map),
+    strengths: needArr("strengths", raw?.strengths),
+    socratic_dialogues: needArr("socratic_dialogues", raw?.socratic_dialogues),
+    reframes: needArr("reframes", raw?.reframes),
+
+    action_plan: needObj("action_plan", raw?.action_plan, {
+      days_1_30: [],
+      days_31_60: [],
+      days_61_90: [],
+    }),
+    triggers_swaps: needArr("triggers_swaps", raw?.triggers_swaps),
+    language_cues_challenges: needArr("language_cues_challenges", raw?.language_cues_challenges),
+    measures_of_progress: needArr("measures_of_progress", raw?.measures_of_progress),
+    affirmations: needArr("affirmations", raw?.affirmations),
+    salient_themes: needArr("salient_themes", raw?.salient_themes),
+
+    limiting_beliefs: needArr("limiting_beliefs", raw?.limiting_beliefs),
+    supporting_beliefs: needArr("supporting_beliefs", raw?.supporting_beliefs),
+  };
+
+  // Attach a hidden property for diagnostics (not persisted)
+  (normalized as any).__missing = missing;
+  return normalized;
 }
 
 export async function POST(req: Request) {
@@ -45,9 +89,7 @@ export async function POST(req: Request) {
   const url = new URL(req.url);
   const sawHeaderKey = !!req.headers.get("x-license-key");
   const sawQueryKey = url.searchParams.has("key");
-//  const wantEchoDebug = url.searchParams.get("debug") === "1";
-  const wantEchoDebug = "1";
-  
+
   console.log("[report] START", {
     traceId,
     path: url.pathname,
@@ -59,7 +101,6 @@ export async function POST(req: Request) {
   // 0) Paywall
   const pro = await requirePro(req);
   console.log("[report] requirePro", { traceId, ok: pro.ok, status: (pro as any)?.status });
-
   if (!pro.ok) {
     const resp = NextResponse.json(
       { message: "Pro required", upgradeUrl: "/pricing" },
@@ -91,10 +132,46 @@ export async function POST(req: Request) {
     return resp;
   }
 
-  // 2) Build extended model + HTML
-  const extended = enrichAnalysis(body.analysis_payload);
+  // 2) Build extended model (first-pass defaults in enrich)
+  const extendedRaw = enrichAnalysis(body.analysis_payload);
+
+  // 2a) Last-mile normalization (guarantees renderer safety even with ultra-thin payloads)
+  const extended = normalizeExtended(extendedRaw);
+  const missing = (extended as any).__missing as string[] | undefined;
+
+  console.log("[report] NORMALIZE", {
+    traceId,
+    missing: missing || [],
+    extended_keys: Object.keys(extendedRaw || {}),
+    meta_keys: Object.keys(body.report_meta || {}),
+  });
+
+  // 2b) Render HTML
+  let htmlContent = "";
   const meta = body.report_meta || {};
-  const htmlContent = renderBeliefBlueprintHTML(extended, meta);
+  try {
+    htmlContent = renderBeliefBlueprintHTML(extended, meta);
+  } catch (e: any) {
+    console.error("[report] RENDER_ERROR", {
+      traceId,
+      message: e?.message || String(e),
+      shapes: {
+        patterns: Array.isArray(extended.patterns),
+        belief_map: Array.isArray(extended.belief_map),
+        action_plan: {
+          d1: Array.isArray(extended.action_plan?.days_1_30),
+          d2: Array.isArray(extended.action_plan?.days_31_60),
+          d3: Array.isArray(extended.action_plan?.days_61_90),
+        },
+      },
+    });
+    const resp = NextResponse.json(
+      { error: "RENDER_ERROR", message: "Could not render HTML." },
+      { status: 400 }
+    );
+    resp.headers.set("X-Debug-Trace", traceId);
+    return resp;
+  }
 
   console.log("[report] INPUTS", {
     traceId,
@@ -111,7 +188,6 @@ export async function POST(req: Request) {
     (body.report_meta?.prepared_by?.trim() ||
       body.report_meta?.prepared_for?.trim() ||
       "anon");
-
   const ownerKey = ownerRaw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
   const basePath = `reports/${ownerKey}/${reportId}`;
 
@@ -129,7 +205,7 @@ export async function POST(req: Request) {
     "text/html; charset=utf-8"
   );
 
-  // 6) Build viewer URL (pretty route that streams the exact saved HTML by reportId)
+  // 6) Build viewer URL
   const baseUrl = getBaseUrl(req);
   const viewer_url = `${baseUrl}/report/view/${reportId}`;
 
@@ -144,27 +220,17 @@ export async function POST(req: Request) {
     viewer_url_path: (() => { try { return new URL(viewer_url).pathname; } catch { return "?"; } })(),
   });
 
-  // 7) Respond with URLs (users can open HTML and “Print to PDF” in browser)
-  const payload: any = {
-    ok: true,
-    endpoint: "analysis/beliefs/report",
-    report_id: reportId,
-    report_json_url: jsonBlob.url,
-    report_html_url: htmlBlob.url,
-    viewer_url,
-  };
-
-  if (wantEchoDebug) {
-    payload.debug = {
-      traceId,
-      sawHeaderKey,
-      sawQueryKey,
-      analysis_payload_len: safeLen(body.analysis_payload),
-      report_meta_len: safeLen(meta),
-    };
-  }
-
-  const resp = NextResponse.json(payload, { status: 200 });
+  const resp = NextResponse.json(
+    {
+      ok: true,
+      endpoint: "analysis/beliefs/report",
+      report_id: reportId,
+      report_json_url: jsonBlob.url,
+      report_html_url: htmlBlob.url,
+      viewer_url,
+    },
+    { status: 200 }
+  );
   resp.headers.set("X-Debug-Trace", traceId);
   console.log("[report] END ok", { traceId, status: 200 });
   return resp;

@@ -118,7 +118,7 @@ Input (from user):
     "target_role": "<optional>",
     "constraints": { "length": "short|medium|long", "tone": "gentle|direct|coach-like", "mix": { "open": <0-1>, "scale": <0-1>, "forced": <0-1> } }
   }
-Return (exact JSON block first, then a short human summary):
+Return (human readable form with summary):
   {
     "questionnaire_id": "q-{{timestamp}}",
     "title": "Belief Discovery Questionnaire",
@@ -199,14 +199,13 @@ Input:
     "report_meta": {
       "title": "Belief Blueprint Report",
       "prepared_for": "<name?>",
-      "prepared_by":  "5th Element",
+      "prepared_by":  "<name of prepared by?",
       "brand": { "logoUrl": "https://...", "accentColor": "#0D9488" },
-      "footer_note": "© 2025 5th Element"
+      "footer_note": "<as specified in chat?>"
     }
   }
 Return:
-  - The exact JSON block above, fully populated from the chat analysis.
-  - Then a short human-readable summary using the Output template (Summary / What I heard / Reframes & Plan / Gentle Mode / Next step).
+  - Human readable form fully populated from the chat analysis usng the output as specified in the chat.
 Notes:
   - Do NOT call any server API for report generation. Front-end will render HTML from this JSON via local renderer.
 

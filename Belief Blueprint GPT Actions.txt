@@ -21,109 +21,9 @@ components:
       type: apiKey
       in: header
       name: X-License-Key
-
-  schemas:
-    QuestionnaireDesignRequest:
-      type: object
-      required: [context]
-      properties:
-        context: { type: string, description: "Scenario/background for which to design the questionnaire" }
-        target_role: { type: string, description: "Archetype or audience (e.g., 'Corporate professional')" }
-        constraints:
-          type: object
-          properties:
-            length: { type: integer, minimum: 1, maximum: 50, description: "Number of items to generate" }
-            tone: { type: string, enum: ["supportive","neutral","direct"], default: "supportive" }
-            mix:
-              type: object
-              properties:
-                open:   { type: number, minimum: 0, maximum: 1 }
-                scale:  { type: number, minimum: 0, maximum: 1 }
-                forced: { type: number, minimum: 0, maximum: 1 }
-        kn_ref:
-          type: array
-          items: { type: string }
-          description: "Knowledge file references for sample questionnaires"
-
-    QuestionnaireDesignResponse:
-      type: object
-      properties:
-        questionnaire_id: { type: string }
-        items:
-          type: array
-          items:
-            type: object
-            properties:
-              type: { type: string, enum: ["open","scale","forced","other"] }
-              text: { type: string }
-              options:
-                type: array
-                items: { type: string }
-        guidance: { type: string }
-
-    ReportMeta:
-      type: object
-      properties:
-        title:        { type: string }
-        prepared_for: { type: string }
-        prepared_by:  { type: string }
-        brand:
-          type: object
-          properties:
-            logoUrl:     { type: string, format: uri }
-            accentColor: { type: string, pattern: "^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$" }
-        footer_note:  { type: string }
-
-    AnalysisPayload:
-      type: object
-      required: [summary]
-      properties:
-        analysis_id:      { type: string }
-        questionnaire_id: { type: string }
-        salient_themes:   { type: array, items: { type: string } }
-        limiting_beliefs:
-          type: array
-          items:
-            type: object
-            properties:
-              belief: { type: string }
-              evidence_from_responses:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    snippet: { type: string }
-              confidence: { type: number, minimum: 0, maximum: 1 }
-        supporting_beliefs: { type: array, items: { type: object } }
-        contradictions:     { type: array, items: { type: object } }
-        emotional_markers:  { type: array, items: { type: object } }
-        language_patterns:  { type: array, items: { type: string } }
-        recommendations:    { type: array, items: { type: string } }
-        summary:            { type: string }
-
-    ReportRequest:
-      type: object
-      properties:
-        analysis_id:      { type: string }
-        analysis_payload: { $ref: '#/components/schemas/AnalysisPayload' }
-        report_meta:      { $ref: '#/components/schemas/ReportMeta' }
-      oneOf:
-        - required: [analysis_payload]
-        - required: [analysis_id]
-
-    ReportResponse:
-      type: object
-      required: [ok, report_id, report_json_url, report_html_url, viewer_url]
-      properties:
-        ok:              { type: boolean }
-        endpoint:        { type: string }
-        report_id:       { type: string }
-        report_json_url: { type: string, format: uri }
-        report_html_url: { type: string, format: uri }
-        viewer_url:      { type: string, format: uri }
+  schemas: {}
 
 paths:
-  # --- existing paths (unchanged) ---
   /api/trial/boot:
     get:
       operationId: trialBoot
@@ -142,13 +42,13 @@ paths:
               schema:
                 type: object
                 properties:
-                  trial:     { type: string, enum: ["active","expired"] }
+                  trial: { type: string, enum: [active, expired] }
                   startedAt: { type: string, nullable: true }
                   expiresAt: { type: string, nullable: true }
                   daysTotal: { type: integer }
-                  day:       { type: integer }
-                  mode:      { type: string, enum: ["email","cookie"] }
-                  message:   { type: string }
+                  day: { type: integer }
+                  mode: { type: string, enum: [email, cookie] }
+                  message: { type: string }
 
   /api/trial/status:
     get:
@@ -162,11 +62,11 @@ paths:
               schema:
                 type: object
                 properties:
-                  trialDays: { type: integer }
-                  startedAt: { type: string, nullable: true }
-                  isActive:  { type: boolean }
-                  daysLeft:  { type: integer }
-                  endsAtISO: { type: string, nullable: true }
+                  trialDays:   { type: integer }
+                  startedAt:   { type: string, nullable: true }
+                  isActive:    { type: boolean }
+                  daysLeft:    { type: integer }
+                  endsAtISO:   { type: string, nullable: true }
 
   /api/beliefs/scan:
     post:
@@ -179,9 +79,12 @@ paths:
             schema:
               type: object
               properties:
-                situation: { type: string }
-                emotion:   { type: string }
-                anonId:    { type: string }
+                situation:
+                  type: string
+                emotion:
+                  type: string
+                anonId:
+                  type: string
       responses:
         "200":
           description: Inferred belief with prompts (free result)
@@ -190,10 +93,16 @@ paths:
               schema:
                 type: object
                 properties:
-                  belief:   { type: string }
-                  prompts:  { type: array, items: { type: string } }
-                  severity: { type: integer }
-                  safety:   { type: string }
+                  belief:
+                    type: string
+                  prompts:
+                    type: array
+                    items:
+                      type: string
+                  severity:
+                    type: integer
+                  safety:
+                    type: string
         "429":
           description: Daily free limit reached (5/day)
           content:
@@ -201,20 +110,23 @@ paths:
               schema:
                 type: object
                 properties:
-                  error:      { type: string }
-                  message:    { type: string }
-                  upgradeUrl: { type: string }
+                  error:
+                    type: string
+                  message:
+                    type: string
+                  upgradeUrl:
+                    type: string
 
   /api/beliefs/reframe:
     post:
       operationId: beliefsReframe
       summary: Generate a Pro NLP reframe workflow
-    # (unchanged; still uses ?key in query)
       parameters:
         - in: query
           name: key
           required: true
-          schema: { type: string }
+          schema:
+            type: string
           description: License key, e.g., LIC-PRO-cus_xxx-XXXXXX
       requestBody:
         required: true
@@ -223,8 +135,10 @@ paths:
             schema:
               type: object
               properties:
-                belief:  { type: string }
-                context: { type: string }
+                belief:
+                  type: string
+                context:
+                  type: string
       responses:
         "200":
           description: Reframe steps
@@ -233,11 +147,18 @@ paths:
               schema:
                 type: object
                 properties:
-                  belief:  { type: string }
-                  context: { type: string }
-                  steps:   { type: array, items: { type: string } }
-                  note:    { type: string }
-        "402": { description: Payment required / upgrade }
+                  belief:
+                    type: string
+                  context:
+                    type: string
+                  steps:
+                    type: array
+                    items:
+                      type: string
+                  note:
+                    type: string
+        "402":
+          description: Payment required / upgrade
 
   /api/actions/plan:
     post:
@@ -247,7 +168,8 @@ paths:
         - in: query
           name: key
           required: true
-          schema: { type: string }
+          schema:
+            type: string
           description: License key, e.g., LIC-PRO-cus_xxx-XXXXXX
       requestBody:
         required: true
@@ -256,8 +178,10 @@ paths:
             schema:
               type: object
               properties:
-                belief: { type: string }
-                goal:   { type: string }
+                belief:
+                  type: string
+                goal:
+                  type: string
       responses:
         "200":
           description: Action plan
@@ -266,11 +190,20 @@ paths:
               schema:
                 type: object
                 properties:
-                  belief:   { type: string }
-                  goal:     { type: string }
-                  plan:     { type: array, items: { type: string } }
-                  cautions: { type: array, items: { type: string } }
-        "402": { description: Payment required / upgrade }
+                  belief:
+                    type: string
+                  goal:
+                    type: string
+                  plan:
+                    type: array
+                    items:
+                      type: string
+                  cautions:
+                    type: array
+                    items:
+                      type: string
+        "402":
+          description: Payment required / upgrade
 
   /api/libraries/themes:
     get:
@@ -289,18 +222,23 @@ paths:
                     items:
                       type: object
                       properties:
-                        key:   { type: string }
-                        title: { type: string }
-                        count: { type: integer }
+                        key:
+                          type: string
+                        title:
+                          type: string
+                        count:
+                          type: integer
                   preview:
                     type: array
                     items:
                       type: object
                       properties:
-                        theme: { type: string }
+                        theme:
+                          type: string
                         items:
                           type: array
-                          items: { type: string }
+                          items:
+                            type: string
 
   /api/libraries/{theme}:
     get:
@@ -312,11 +250,12 @@ paths:
           required: true
           schema:
             type: string
-            enum: ["health_discipline","leadership_imposter","money_beliefs","relationships_boundaries","entrepreneur_risk_tolerance"]
+            enum: [health_discipline, leadership_imposter, money_beliefs, relationships_boundaries, entrepreneur_risk_tolerance]
         - in: query
           name: key
           required: true
-          schema: { type: string }
+          schema:
+            type: string
           description: License key, e.g., LIC-PRO-cus_xxx-XXXXXX
       responses:
         "200":
@@ -326,12 +265,20 @@ paths:
               schema:
                 type: object
                 properties:
-                  key:   { type: string }
-                  title: { type: string }
-                  items: { type: array, items: { type: string } }
-        "402": { description: Payment required / upgrade }
-        "403": { description: Forbidden (license invalid or not authorized) }
-        "404": { description: Unknown theme }
+                  key:
+                    type: string
+                  title:
+                    type: string
+                  items:
+                    type: array
+                    items:
+                      type: string
+        "402":
+          description: Payment required / upgrade
+      "403":
+        description: Forbidden (license invalid or not authorized)
+        "404":
+          description: Unknown theme
 
   /api/license/status:
     get:
@@ -341,7 +288,8 @@ paths:
         - in: query
           name: key
           required: false
-          schema: { type: string }
+          schema:
+            type: string
           description: Optional license key (e.g., LIC-PRO-cus_XXXX-ABCDEFGH). If omitted, the server will read the X-License-Key header.
       responses:
         "200":
@@ -351,11 +299,17 @@ paths:
               schema:
                 type: object
                 properties:
-                  status:    { type: string }
-                  plan:      { type: string }
-                  expiresAt: { type: string, nullable: true }
-                  features:  { type: array, items: { type: string } }
-
+                  status:
+                    type: string
+                  plan:
+                    type: string
+                  expiresAt:
+                    type: string
+                    nullable: true
+                  features:
+                    type: array
+                    items:
+                      type: string
   /api/exports/pdf:
     post:
       operationId: exportPdf
@@ -387,51 +341,6 @@ paths:
                   fileName: { type: string }
                   url:      { type: string }
                   bytes:    { type: number }
-        "402": { description: Payment required / upgrade }
+        "402":
+          description: Payment required / upgrade
 
-  # ------- NEW PRO PATHS (via compat proxy accepting ?key) -------
-  /api/compat/questionnaires/design:
-    post:
-      operationId: designQuestionnaire
-      summary: Design a belief-eliciting questionnaire from context
-      description: Pro-gated via query parameter 'key'. This proxy forwards to /api/questionnaires/design with X-License-Key header.
-      parameters:
-        - in: query
-          name: key
-          required: true
-          schema: { type: string }
-          description: License key (forwarded as X-License-Key)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/QuestionnaireDesignRequest' }
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/QuestionnaireDesignResponse' }
-
-  /api/compat/analysis/beliefs/report:
-    post:
-      operationId: generateBeliefBlueprintReport
-      summary: Generate the Belief Blueprint report (HTML & JSON) from an analysis payload
-      description: Pro-gated via query parameter 'key'. This proxy forwards to /api/analysis/beliefs/report with X-License-Key header. Supports branding via report_meta.
-      parameters:
-        - in: query
-          name: key
-          required: true
-          schema: { type: string }
-          description: License key (forwarded as X-License-Key)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/ReportRequest' }
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ReportResponse' }

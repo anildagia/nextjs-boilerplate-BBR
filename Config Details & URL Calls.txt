@@ -13,18 +13,18 @@ ADMIN_TOKEN=Lp701qBiz7fuaLW7
 
 
 Issue Gift License with any price id
-https://discovering-beliefs.vercel.app/api/admin/gifts/issue-stripe?token=MTOAMdjG3tfZtkog&email=USER_EMAIL@example.com&days=NN&price=price_1SFhQvSFQcdmq2ngG7UhaVeT
+https://belief-blueprint.vercel.app/api/admin/gifts/issue-stripe?token=MTOAMdjG3tfZtkog&email=USER_EMAIL@example.com&days=NN&price=price_1SFhQvSFQcdmq2ngG7UhaVeT
 <price is optional if you set GIFT_PRICE_ID>
 
 Revoke Gift License using email address
-https://discovering-beliefs.vercel.app/api/admin/gifts/revoke-stripe?token=MTOAMdjG3tfZtkog&email=USER_EMAIL@example.com
+https://belief-blueprint.vercel.app/api/admin/gifts/revoke-stripe?token=MTOAMdjG3tfZtkog&email=USER_EMAIL@example.com
 
 Revoke Gift License using customer id
-https://discovering-beliefs.vercel.app/api/admin/gifts/revoke-stripe?token=MTOAMdjG3tfZtkog&customerId=cus_XXXXXXXXXXXX
+https://belief-blueprint.vercel.app/api/admin/gifts/revoke-stripe?token=MTOAMdjG3tfZtkog&customerId=cus_XXXXXXXXXXXX
 
 Revoke Gift License using email address using License key
-https://discovering-beliefs.vercel.app/api/admin/gifts/revoke-stripe?token=MTOAMdjG3tfZtkog&license=LIC-PRO-cus_XXXXXXXXXXXX-ABCDEF12
+https://belief-blueprint.vercel.app/api/admin/gifts/revoke-stripe?token=MTOAMdjG3tfZtkog&license=LIC-PRO-cus_XXXXXXXXXXXX-ABCDEF12
 
 Fetch License key
-https://discovering-beliefs.vercel.app/api/admin/license?token=MTOAMdjG3tfZtkog&customerId=<>
-https://discovering-beliefs.vercel.app/api/admin/license?token=MTOAMdjG3tfZtkog&email=<>
+https://belief-blueprint.vercel.app/api/admin/license?token=MTOAMdjG3tfZtkog&customerId=<>
+https://belief-blueprint.vercel.app/api/admin/license?token=MTOAMdjG3tfZtkog&email=<>

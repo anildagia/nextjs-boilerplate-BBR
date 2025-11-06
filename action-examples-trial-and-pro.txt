@@ -67,7 +67,7 @@ Expected:
 Action: getTheme
 HTTP: GET /api/libraries/{theme}?key={{savedLicense}}
 Params:
-  theme: "health_discipline" | "leadership_imposter"
+  theme: "health_discipline" | "leadership_imposter" | "money_beliefs" | "relationships_boundaries" | "entrepreneur_risk_tolerance"
 Expected:
   200 OK with { "key", "title", "items": [...] }
 

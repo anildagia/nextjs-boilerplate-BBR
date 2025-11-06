@@ -28,9 +28,3 @@ https://discovering-beliefs.vercel.app/api/admin/gifts/revoke-stripe?token=MTOAM
 Fetch License key
 https://discovering-beliefs.vercel.app/api/admin/license?token=MTOAMdjG3tfZtkog&customerId=<>
 https://discovering-beliefs.vercel.app/api/admin/license?token=MTOAMdjG3tfZtkog&email=<>
-
-View List of Blueprint Reports
-https://belief-blueprint.vercel.app/reports?license=LIC-PRO-cus_Sdll4fFYCLr5q7-3D01C27B&owner=5th-element&debug=1
-
-View Specific Blueprint Report
-https://belief-blueprint.vercel.app/report/view/<report-id : rpt-nnnn>rpt-1761576859302

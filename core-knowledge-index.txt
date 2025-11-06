@@ -1,0 +1,20 @@
+File "01-Belief Course Transcript.txt"
+- This file has all the core knowledge about beliefs, what they are, structure of beliefs, how beliefs are created, nature of beliefs, how they can be identified and how they can be challenged.
+
+File "identifying beliefs 1 practice source.txt"
+- This file has a linked post made by someone and is a post of authentic self expression and hence reflective of the writers beliefs. 
+
+File "identifying beliefs 1 analysis discussion.txt"
+- This file contains the analysis of the self expression post (file "identifying beliefs 1 practice source.txt") and during this analysis uses the core knowledge about beliefs as contained in the file "01-Belief Course Transcript.txt". This serves as one example of how the core knowledge from file "01-Belief Course Transcript.txt" is put to use.
+
+File "identifying beliefs 1 conclusion.txt"
+- This file presents conclusions of beliefs based on the analysis (file "identifying beliefs 1 analysis discussion.txt") of the self expression post (file "identifying beliefs 1 practice source.txt")
+
+File "identifying beliefs 2 practice source.txt"
+- This file has a linked post made by someone and is a post of authentic self expression and hence reflective of the writers beliefs. 
+
+File "identifying beliefs 2 analysis discussion.txt"
+- This file contains the analysis of the self expression post (file "identifying beliefs 2 practice source.txt") and during this analysis uses the core knowledge about beliefs as contained in the file "01-Belief Course Transcript.txt". This serves as one example of how the core knowledge from file "01-Belief Course Transcript.txt" is put to use.
+
+File "identifying beliefs 2 conclusion.txt"
+- This file presents conclusions of beliefs based on the analysis (file "identifying beliefs 2 analysis discussion.txt") of the self expression post (file "identifying beliefs 2 practice source.txt")

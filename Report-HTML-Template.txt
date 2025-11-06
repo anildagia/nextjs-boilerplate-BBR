@@ -1,0 +1,12 @@
+Report HTML rules:
+- Wrap the whole report in a single <article> element; avoid nested <html>/<head>/<body>.
+- Use semantic tags: <section>, <h1/2/3>, <p>, <ul>, <li>. No external CSS; inline CSS only if needed.
+- Keep width to ~880px using a wrapping <div style="max-width:880px;margin:0 auto;padding:24px">.
+- Brand bar: optional logo <img> (max-height:42px), title as <h1>, meta line: prepared_for, prepared_by, generated date.
+- Use accentColor for section headings via inline style="color:#0D9488".
+- Avoid <p> wrapping <ul>. Never nest block elements in <p>.
+- Use short cards as <div style="border:1px solid #eee;border-radius:10px;padding:14px 16px;margin:10px 0">.
+- Prefer short lists; break long paragraphs at ~90 characters per line visually.
+- Footer note at the end in small, muted text.
+- Include: executive_snapshot, patterns, belief_map, strengths, socratic_dialogues, reframes, action_plan (30/60/90), triggers_swaps, language_cues_challenges, measures_of_progress, affirmations, salient_themes, limiting_beliefs (with confidence), supporting_beliefs, summary.
+- Close with: “Tip: use your browser’s Print → Save as PDF.”

@@ -110,7 +110,7 @@ Expected:
 # --------- LOCAL GENERATION (NO SERVER CALL) ---------
 
 [Questionnaire-Local-001]
-Purpose: Build a belief-eliciting questionnaire in the chat (front-end renders; NO API CALL).
+Purpose: Produce a belief-eliciting questionnaire payload in chat. (NO API CALL). The front-end will render HTML/JSON.
 Action: none (local generation)
 Input (from user): 
   {
@@ -118,7 +118,7 @@ Input (from user):
     "target_role": "<optional>",
     "constraints": { "length": "short|medium|long", "tone": "gentle|direct|coach-like", "mix": { "open": <0-1>, "scale": <0-1>, "forced": <0-1> } }
   }
-Return (human readable form with summary):
+Output:
   {
     "questionnaire_id": "q-{{timestamp}}",
     "title": "Belief Discovery Questionnaire",
@@ -141,9 +141,12 @@ Return (human readable form with summary):
     ],
     "privacy_note": "Not therapy; if distressed, seek local crisis resources."
   }
+Return:
+  - Human readable form
 Notes:
-  - Keep 10–18 items total depending on constraints.length.
+  - Keep 10–18 items total depending on constraints length.
   - Use client’s words; avoid clinical jargon; respect Gentle Mode if enabled.
+  - Do NOT call any server API for questionnaire generation. Front-end will render HTML from this JSON via local renderer.
 
 [Report-Local-001]
 Purpose: Produce a Belief Blueprint report payload in chat (NO API CALL). The front-end will render HTML/JSON.
@@ -205,7 +208,7 @@ Input:
     }
   }
 Return:
-  - Human readable form fully populated from the chat analysis usng the output as specified in the chat.
+  - Human readable form fully populated from the chat analysis using the output as specified in the chat.
 Notes:
   - Do NOT call any server API for report generation. Front-end will render HTML from this JSON via local renderer.
 
@@ -217,4 +220,3 @@ For any substantive result, show:
   - Gentle Mode — note if used and soften phrasing.
   - Next step — one small action.
   - (If Export used) Include the returned PDF URL.
-

@@ -52,9 +52,7 @@ async function assertBlobStoreIsolation() {
   const token = process.env.BLOB_READ_WRITE_TOKEN || "";
 
   // Case-insensitive match to handle mixed-case tokens/subdomains
-  if (
-    !token.toLowerCase().includes(EXPECTED_BLOB_SUBDOMAIN.toLowerCase())
-  ) {
+  if (!token.toLowerCase().includes(EXPECTED_BLOB_SUBDOMAIN.toLowerCase())) {
     throw new Error("BLOB token mismatch — check EXPECTED_BLOB_SUBDOMAIN.");
   }
 
@@ -100,7 +98,7 @@ async function saveLicenseRecord(params: {
     email,
     source,
     savedAt: new Date().toISOString(),
-    ...extra,
+    ...extra, // <— includes store, projectHost, priceIds, productIds
   };
 
   const token = process.env.BLOB_READ_WRITE_TOKEN || "";
@@ -186,18 +184,20 @@ export async function POST(req: NextRequest) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
 
-        // --- Option A: fetch line items to enforce price allow-list ---
-        let priceIds = new Set<string>();
+        // Collect priceIds + productIds from actual line items
+        const priceIds = new Set<string>();
+        const productIds = new Set<string>();
         try {
           const items = await stripe.checkout.sessions.listLineItems(session.id, { limit: 100 });
           for (const li of items.data) {
-            // Stripe.LineItem has price?.id. Avoid direct li.plan (not typed).
-            const id =
-              li.price?.id ??
-              (li as any)?.plan?.id ?? // legacy/older shapes (if any)
-              (li as any)?.price ??    // raw id fallback (rare)
-              null;
-            if (typeof id === "string") priceIds.add(id);
+            const priceId = li.price?.id ?? (li as any)?.price ?? null;
+            if (typeof priceId === "string") priceIds.add(priceId);
+
+            // product can be string or object depending on expansion
+            const prod = li.price?.product as string | Stripe.Product | undefined;
+            const productId =
+              typeof prod === "string" ? prod : (prod?.id ?? undefined);
+            if (typeof productId === "string") productIds.add(productId);
           }
         } catch (e) {
           console.warn("[stripe:webhook] listLineItems failed", { sessionId: session.id, e });
@@ -246,6 +246,10 @@ export async function POST(req: NextRequest) {
           email,
           source: "checkout.session.completed",
           extra: {
+            store: EXPECTED_BLOB_SUBDOMAIN,
+            projectHost: process.env.VERCEL_URL || null,
+            priceIds: [...priceIds],
+            productIds: [...productIds],
             sessionId: session.id,
             mode: session.mode,
             currency: session.currency,
@@ -265,15 +269,22 @@ export async function POST(req: NextRequest) {
       case "customer.subscription.created": {
         const sub = event.data.object as Stripe.Subscription;
 
+        const subPriceIds = (sub.items?.data || [])
+          .map((it) => it.price?.id)
+          .filter(Boolean) as string[];
+        const subProductIds = (sub.items?.data || [])
+          .map((it) => {
+            const p = it.price?.product as string | Stripe.Product | undefined;
+            return typeof p === "string" ? p : p?.id;
+          })
+          .filter(Boolean) as string[];
+
         if (ALLOWED_PRICE_IDS.length > 0) {
-          const ids = (sub.items?.data || [])
-            .map((it) => it.price?.id || (it as any).plan?.id)
-            .filter(Boolean) as string[];
-          const allowed = ids.some((id) => ALLOWED_PRICE_IDS.includes(id));
+          const allowed = subPriceIds.some((id) => ALLOWED_PRICE_IDS.includes(id));
           if (!allowed) {
             console.log("[stripe:webhook] skipped subscription.created (no allowed price ids)", {
               subId: sub.id,
-              priceIds: ids,
+              priceIds: subPriceIds,
               allowedList: ALLOWED_PRICE_IDS,
             });
             return ok();
@@ -311,6 +322,10 @@ export async function POST(req: NextRequest) {
           email,
           source: "customer.subscription.created",
           extra: {
+            store: EXPECTED_BLOB_SUBDOMAIN,
+            projectHost: process.env.VERCEL_URL || null,
+            priceIds: subPriceIds,
+            productIds: subProductIds,
             subscriptionId: sub.id,
             status: sub.status,
             current_period_end: sub.current_period_end,
@@ -328,15 +343,22 @@ export async function POST(req: NextRequest) {
       case "customer.subscription.updated": {
         const sub = event.data.object as Stripe.Subscription;
 
+        const subPriceIds = (sub.items?.data || [])
+          .map((it) => it.price?.id)
+          .filter(Boolean) as string[];
+        const subProductIds = (sub.items?.data || [])
+          .map((it) => {
+            const p = it.price?.product as string | Stripe.Product | undefined;
+            return typeof p === "string" ? p : p?.id;
+          })
+          .filter(Boolean) as string[];
+
         if (ALLOWED_PRICE_IDS.length > 0) {
-          const ids = (sub.items?.data || [])
-            .map((it) => it.price?.id || (it as any).plan?.id)
-            .filter(Boolean) as string[];
-          const allowed = ids.some((id) => ALLOWED_PRICE_IDS.includes(id));
+          const allowed = subPriceIds.some((id) => ALLOWED_PRICE_IDS.includes(id));
           if (!allowed) {
             console.log("[stripe:webhook] skipped subscription.updated (no allowed price ids)", {
               subId: sub.id,
-              priceIds: ids,
+              priceIds: subPriceIds,
               allowedList: ALLOWED_PRICE_IDS,
             });
             return ok();
@@ -366,6 +388,10 @@ export async function POST(req: NextRequest) {
           email,
           source: "customer.subscription.updated",
           extra: {
+            store: EXPECTED_BLOB_SUBDOMAIN,
+            projectHost: process.env.VERCEL_URL || null,
+            priceIds: subPriceIds,
+            productIds: subProductIds,
             subscriptionId: sub.id,
             status: sub.status,
             current_period_end: sub.current_period_end,
@@ -383,15 +409,22 @@ export async function POST(req: NextRequest) {
       case "customer.subscription.deleted": {
         const sub = event.data.object as Stripe.Subscription;
 
+        const subPriceIds = (sub.items?.data || [])
+          .map((it) => it.price?.id)
+          .filter(Boolean) as string[];
+        const subProductIds = (sub.items?.data || [])
+          .map((it) => {
+            const p = it.price?.product as string | Stripe.Product | undefined;
+            return typeof p === "string" ? p : p?.id;
+          })
+          .filter(Boolean) as string[];
+
         if (ALLOWED_PRICE_IDS.length > 0) {
-          const ids = (sub.items?.data || [])
-            .map((it) => it.price?.id || (it as any).plan?.id)
-            .filter(Boolean) as string[];
-          const allowed = ids.some((id) => ALLOWED_PRICE_IDS.includes(id));
+          const allowed = subPriceIds.some((id) => ALLOWED_PRICE_IDS.includes(id));
           if (!allowed) {
             console.log("[stripe:webhook] skipped subscription.deleted (no allowed price ids)", {
               subId: sub.id,
-              priceIds: ids,
+              priceIds: subPriceIds,
               allowedList: ALLOWED_PRICE_IDS,
             });
             return ok();
@@ -421,6 +454,10 @@ export async function POST(req: NextRequest) {
           email,
           source: "customer.subscription.deleted",
           extra: {
+            store: EXPECTED_BLOB_SUBDOMAIN,
+            projectHost: process.env.VERCEL_URL || null,
+            priceIds: subPriceIds,
+            productIds: subProductIds,
             subscriptionId: sub.id,
             status: sub.status,
             current_period_end: sub.current_period_end,

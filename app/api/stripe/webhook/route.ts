@@ -6,17 +6,15 @@ import { put } from "@vercel/blob";
 
 export const runtime = "nodejs"; // Stripe SDK needs Node
 
-// ---- Optional: hard routing guards (set per-project) ----
-// Example: Only accept events containing these price IDs
+// ---------- Per-project routing guards (configure in Vercel env) ----------
 const ALLOWED_PRICE_IDS = (process.env.ALLOWED_PRICE_IDS || "")
   .split(",")
-  .map(s => s.trim())
-  .filter(Boolean);
+  .map((s) => s.trim())
+  .filter(Boolean); // e.g. "price_123,price_456"
 
-// Example: ensure writes go to the expected blob subdomain (safety net)
 const EXPECTED_BLOB_SUBDOMAIN = process.env.EXPECTED_BLOB_SUBDOMAIN || ""; // e.g. "yortzkpqfilo9jvz"
 
-// --- Stripe init ---
+// -------- Stripe init --------
 function getStripe() {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error("STRIPE_SECRET_KEY not set");
@@ -30,23 +28,62 @@ function bad(msg: string, code = 400) {
   return NextResponse.json({ error: msg }, { status: code });
 }
 
-// Create a new-format license: LIC-PRO-<cus_XXXX>-<8HEX>
+// -------- License helpers --------
 function issueLicenseForCustomerId(customerId: string) {
   const short = crypto.randomBytes(4).toString("hex").toUpperCase();
   return `LIC-PRO-${customerId}-${short}`;
 }
 
-// ---- Stripe helpers / type guards ----
 function isDeletedCustomer(
   c: Stripe.Customer | Stripe.DeletedCustomer
 ): c is Stripe.DeletedCustomer {
   return (c as any).deleted === true;
 }
 
-// normalize email to a blob-safe key: lowercased + only [a-z0-9._-]
 function emailKey(emailRaw: string) {
   const e = String(emailRaw || "").trim().toLowerCase();
   return e.replace(/[^a-z0-9._-]+/g, "_");
+}
+
+// ---------- Blob routing preflight (HARD ISOLATION) ----------
+let preflightPassedThisRequest = false;
+
+async function assertBlobStoreIsolation() {
+  if (preflightPassedThisRequest) return;
+
+  // Write a tiny probe file to discover the destination subdomain
+  const token = process.env.BLOB_READ_WRITE_TOKEN || "";
+  const tokenPreview = token ? `${token.slice(0, 12)}…${token.slice(-6)}` : null;
+
+  const probe = await put(
+    `_routing_probe/probe-${Date.now()}.txt`,
+    Buffer.from("1"),
+    {
+      access: "public",
+      contentType: "text/plain",
+      addRandomSuffix: true,
+      ...(token ? { token } : {}),
+    }
+  );
+
+  const u = new URL(probe.url);
+  const sub = u.host.split(".")[0]; // <sub>.public.blob.vercel-storage.com
+
+  console.log("[BLOB][preflight]", {
+    wrote: probe.url,
+    detectedSubdomain: sub,
+    expectedSubdomain: EXPECTED_BLOB_SUBDOMAIN || "(none)",
+    tokenPreview,
+  });
+
+  if (EXPECTED_BLOB_SUBDOMAIN && sub !== EXPECTED_BLOB_SUBDOMAIN) {
+    // HARD FAIL: do not proceed with any writes for this request
+    throw new Error(
+      `Blob store mismatch: expected "${EXPECTED_BLOB_SUBDOMAIN}" but wrote to "${sub}". Check BLOB_READ_WRITE_TOKEN.`
+    );
+  }
+
+  preflightPassedThisRequest = true;
 }
 
 // ---- Persist license record to Vercel Blob ----
@@ -69,6 +106,9 @@ async function saveLicenseRecord(params: {
     writeHistory = true,
   } = params;
 
+  // Enforce isolation before any writes
+  await assertBlobStoreIsolation();
+
   const record = {
     customerId,
     licenseKey,
@@ -79,27 +119,20 @@ async function saveLicenseRecord(params: {
   };
 
   const token = process.env.BLOB_READ_WRITE_TOKEN || "";
-  const tokenPreview = token ? `${token.slice(0, 12)}…${token.slice(-6)}` : null;
-
   const putOpts: Parameters<typeof put>[2] = {
     access: "public",
     contentType: "application/json",
-    addRandomSuffix: false,           // stable file names
+    addRandomSuffix: false, // stable file names
     ...(token ? { token } : {}),
   };
 
-  // Helper to log destination store subdomain
   const logWrite = (label: string, url: string) => {
     try {
       const u = new URL(url);
-      const host = u.host; // e.g. yortzkpqfilo9jvz.public.blob.vercel-storage.com
-      const sub = host.split(".")[0];
-      console.log(`[BLOB] ${label}`, { url, storeSubdomain: sub, tokenPreview });
-      if (EXPECTED_BLOB_SUBDOMAIN && sub !== EXPECTED_BLOB_SUBDOMAIN) {
-        console.warn(`[BLOB][WARN] Expected subdomain "${EXPECTED_BLOB_SUBDOMAIN}" but wrote to "${sub}". Check env token!`);
-      }
+      const sub = u.host.split(".")[0];
+      console.log(`[BLOB] ${label}`, { url, storeSubdomain: sub });
     } catch {
-      console.log(`[BLOB] ${label}`, { url, tokenPreview });
+      console.log(`[BLOB] ${label}`, { url });
     }
   };
 
@@ -132,6 +165,7 @@ async function saveLicenseRecord(params: {
   }
 }
 
+// ---------- Webhook ----------
 export async function POST(req: NextRequest) {
   const stripe = getStripe();
 
@@ -141,13 +175,12 @@ export async function POST(req: NextRequest) {
   if (!secret) return bad("STRIPE_WEBHOOK_SECRET not set", 500);
   if (!sig) return bad("Missing Stripe signature header");
 
-  // For quick env provenance while debugging
+  // Simple env trace
   console.log("[stripe:webhook] env", {
     projectUrl: process.env.VERCEL_URL || null,
-    tokenPreview: process.env.BLOB_READ_WRITE_TOKEN
-      ? `${process.env.BLOB_READ_WRITE_TOKEN.slice(0, 12)}…${process.env.BLOB_READ_WRITE_TOKEN.slice(-6)}`
-      : null,
-    secretPreview: `${secret.slice(0, 8)}…${secret.slice(-4)}`,
+    hasBlobToken: !!process.env.BLOB_READ_WRITE_TOKEN,
+    priceAllowlistSize: ALLOWED_PRICE_IDS.length,
+    expectedBlobSubdomain: EXPECTED_BLOB_SUBDOMAIN || "(none)",
   });
 
   const rawBody = await req.text();
@@ -161,44 +194,40 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Optional per-project routing based on known price IDs
-    if (ALLOWED_PRICE_IDS.length > 0) {
-      const obj: any = event.data.object;
-      const lineItems = obj?.lines?.data || obj?.display_items || [];
-      const priceIds = new Set<string>();
-
-      // Try to collect price ids from common event shapes
-      if (Array.isArray(lineItems)) {
-        for (const li of lineItems) {
-          const priceId =
-            li?.price?.id ||
-            li?.plan?.id ||
-            li?.price ||
-            li?.plan ||
-            null;
-          if (typeof priceId === "string") priceIds.add(priceId);
-        }
-      }
-      if (obj?.subscription_items?.data) {
-        for (const it of obj.subscription_items.data) {
-          const pid = it?.price?.id || it?.plan?.id;
-          if (typeof pid === "string") priceIds.add(pid);
-        }
-      }
-
-      const hasAllowed = [...priceIds].some(id => ALLOWED_PRICE_IDS.includes(id));
-      if (!hasAllowed) {
-        console.log("[stripe:webhook] skipped (no allowed price ids)", {
-          eventType: event.type,
-          priceIds: [...priceIds],
-        });
-        return ok();
-      }
-    }
-
     switch (event.type) {
+      // ----------------------------------------------------------
+      // 1) Checkout completes: create license (allowlist-enforced)
+      // ----------------------------------------------------------
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
+
+        // --- Option A: fetch line items to enforce price allow-list ---
+        let priceIds = new Set<string>();
+        try {
+          const items = await stripe.checkout.sessions.listLineItems(session.id, { limit: 100 });
+          for (const li of items.data) {
+            const id =
+              (li.price?.id as string | undefined) ||
+              ((li as any).price as string | undefined) ||
+              (li.plan?.id as string | undefined) ||
+              ((li as any).plan as string | undefined);
+            if (id) priceIds.add(id);
+          }
+        } catch (e) {
+          console.warn("[stripe:webhook] listLineItems failed", { sessionId: session.id, e });
+        }
+
+        if (ALLOWED_PRICE_IDS.length > 0) {
+          const allowed = [...priceIds].some((id) => ALLOWED_PRICE_IDS.includes(id));
+          if (!allowed) {
+            console.log("[stripe:webhook] skipped checkout.session.completed (no allowed price ids)", {
+              sessionId: session.id,
+              priceIds: [...priceIds],
+              allowedList: ALLOWED_PRICE_IDS,
+            });
+            return ok();
+          }
+        }
 
         const customerId =
           typeof session.customer === "string"
@@ -244,8 +273,28 @@ export async function POST(req: NextRequest) {
         return ok();
       }
 
+      // ----------------------------------------------------------
+      // 2) Subscription created: backfill license if missing (allowlist)
+      // ----------------------------------------------------------
       case "customer.subscription.created": {
         const sub = event.data.object as Stripe.Subscription;
+
+        // Enforce allow-list on subscription items
+        if (ALLOWED_PRICE_IDS.length > 0) {
+          const ids = (sub.items?.data || [])
+            .map((it) => it.price?.id || (it as any).plan?.id)
+            .filter(Boolean) as string[];
+          const allowed = ids.some((id) => ALLOWED_PRICE_IDS.includes(id));
+          if (!allowed) {
+            console.log("[stripe:webhook] skipped subscription.created (no allowed price ids)", {
+              subId: sub.id,
+              priceIds: ids,
+              allowedList: ALLOWED_PRICE_IDS,
+            });
+            return ok();
+          }
+        }
+
         const customerId =
           typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
         if (!customerId) return ok();
@@ -288,8 +337,27 @@ export async function POST(req: NextRequest) {
         return ok();
       }
 
+      // ----------------------------------------------------------
+      // 3) Subscription updated: history-only (allowlist)
+      // ----------------------------------------------------------
       case "customer.subscription.updated": {
         const sub = event.data.object as Stripe.Subscription;
+
+        if (ALLOWED_PRICE_IDS.length > 0) {
+          const ids = (sub.items?.data || [])
+            .map((it) => it.price?.id || (it as any).plan?.id)
+            .filter(Boolean) as string[];
+          const allowed = ids.some((id) => ALLOWED_PRICE_IDS.includes(id));
+          if (!allowed) {
+            console.log("[stripe:webhook] skipped subscription.updated (no allowed price ids)", {
+              subId: sub.id,
+              priceIds: ids,
+              allowedList: ALLOWED_PRICE_IDS,
+            });
+            return ok();
+          }
+        }
+
         const customerId =
           typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
         if (!customerId) return ok();
@@ -317,15 +385,34 @@ export async function POST(req: NextRequest) {
             status: sub.status,
             current_period_end: sub.current_period_end,
           },
-          writeLatest: false,
+          writeLatest: false, // history only
           writeHistory: true,
         });
 
         return ok();
       }
 
+      // ----------------------------------------------------------
+      // 4) Subscription canceled/deleted: history-only (allowlist)
+      // ----------------------------------------------------------
       case "customer.subscription.deleted": {
         const sub = event.data.object as Stripe.Subscription;
+
+        if (ALLOWED_PRICE_IDS.length > 0) {
+          const ids = (sub.items?.data || [])
+            .map((it) => it.price?.id || (it as any).plan?.id)
+            .filter(Boolean) as string[];
+          const allowed = ids.some((id) => ALLOWED_PRICE_IDS.includes(id));
+          if (!allowed) {
+            console.log("[stripe:webhook] skipped subscription.deleted (no allowed price ids)", {
+              subId: sub.id,
+              priceIds: ids,
+              allowedList: ALLOWED_PRICE_IDS,
+            });
+            return ok();
+          }
+        }
+
         const customerId =
           typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
         if (!customerId) return ok();
@@ -353,13 +440,14 @@ export async function POST(req: NextRequest) {
             status: sub.status,
             current_period_end: sub.current_period_end,
           },
-          writeLatest: false,
+          writeLatest: false, // keep latest; log event
           writeHistory: true,
         });
 
         return ok();
       }
 
+      // Optional: renewals / dunning history if you care
       case "invoice.payment_succeeded":
       case "invoice.payment_failed": {
         return ok();
@@ -370,6 +458,7 @@ export async function POST(req: NextRequest) {
     }
   } catch (err: any) {
     console.error("Webhook handler error:", err?.message || err);
+    // Always acknowledge to avoid Stripe retries; logs show the cause
     return ok();
   }
 }

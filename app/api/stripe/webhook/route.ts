@@ -49,41 +49,26 @@ function emailKey(emailRaw: string) {
 let preflightPassedThisRequest = false;
 
 async function assertBlobStoreIsolation() {
-  if (preflightPassedThisRequest) return;
-
-  // Write a tiny probe file to discover the destination subdomain
   const token = process.env.BLOB_READ_WRITE_TOKEN || "";
-  const tokenPreview = token ? `${token.slice(0, 12)}…${token.slice(-6)}` : null;
 
-  const probe = await put(
-    `_routing_probe/probe-${Date.now()}.txt`,
-    Buffer.from("1"),
-    {
-      access: "public",
-      contentType: "text/plain",
-      addRandomSuffix: true,
-      ...(token ? { token } : {}),
-    }
-  );
-
-  const u = new URL(probe.url);
-  const sub = u.host.split(".")[0]; // <sub>.public.blob.vercel-storage.com
-
-  console.log("[BLOB][preflight]", {
-    wrote: probe.url,
-    detectedSubdomain: sub,
-    expectedSubdomain: EXPECTED_BLOB_SUBDOMAIN || "(none)",
-    tokenPreview,
-  });
-
-  if (EXPECTED_BLOB_SUBDOMAIN && sub !== EXPECTED_BLOB_SUBDOMAIN) {
-    // HARD FAIL: do not proceed with any writes for this request
-    throw new Error(
-      `Blob store mismatch: expected "${EXPECTED_BLOB_SUBDOMAIN}" but wrote to "${sub}". Check BLOB_READ_WRITE_TOKEN.`
-    );
+  // Case-insensitive match to handle mixed-case tokens/subdomains
+  if (
+    !token.toLowerCase().includes(EXPECTED_BLOB_SUBDOMAIN.toLowerCase())
+  ) {
+    throw new Error("BLOB token mismatch — check EXPECTED_BLOB_SUBDOMAIN.");
   }
 
+  if (preflightPassedThisRequest) return;
   preflightPassedThisRequest = true;
+
+  const subHint = EXPECTED_BLOB_SUBDOMAIN
+    ? `expected: ${EXPECTED_BLOB_SUBDOMAIN}`
+    : "(no expectation set)";
+
+  console.log("[BLOB][preflight] skip probe write (hard isolation assumed)", {
+    subHint,
+    hasToken: !!token,
+  });
 }
 
 // ---- Persist license record to Vercel Blob ----

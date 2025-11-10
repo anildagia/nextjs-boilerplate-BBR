@@ -206,12 +206,13 @@ export async function POST(req: NextRequest) {
         try {
           const items = await stripe.checkout.sessions.listLineItems(session.id, { limit: 100 });
           for (const li of items.data) {
+            // Stripe.LineItem has price?.id. Avoid direct li.plan (not typed).
             const id =
-              (li.price?.id as string | undefined) ||
-              ((li as any).price as string | undefined) ||
-              (li.plan?.id as string | undefined) ||
-              ((li as any).plan as string | undefined);
-            if (id) priceIds.add(id);
+              li.price?.id ??
+              (li as any)?.plan?.id ?? // legacy/older shapes (if any)
+              (li as any)?.price ??    // raw id fallback (rare)
+              null;
+            if (typeof id === "string") priceIds.add(id);
           }
         } catch (e) {
           console.warn("[stripe:webhook] listLineItems failed", { sessionId: session.id, e });
@@ -279,7 +280,6 @@ export async function POST(req: NextRequest) {
       case "customer.subscription.created": {
         const sub = event.data.object as Stripe.Subscription;
 
-        // Enforce allow-list on subscription items
         if (ALLOWED_PRICE_IDS.length > 0) {
           const ids = (sub.items?.data || [])
             .map((it) => it.price?.id || (it as any).plan?.id)

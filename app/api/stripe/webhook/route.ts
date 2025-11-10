@@ -6,6 +6,16 @@ import { put } from "@vercel/blob";
 
 export const runtime = "nodejs"; // Stripe SDK needs Node
 
+// ---- Optional: hard routing guards (set per-project) ----
+// Example: Only accept events containing these price IDs
+const ALLOWED_PRICE_IDS = (process.env.ALLOWED_PRICE_IDS || "")
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean);
+
+// Example: ensure writes go to the expected blob subdomain (safety net)
+const EXPECTED_BLOB_SUBDOMAIN = process.env.EXPECTED_BLOB_SUBDOMAIN || ""; // e.g. "yortzkpqfilo9jvz"
+
 // --- Stripe init ---
 function getStripe() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -40,15 +50,14 @@ function emailKey(emailRaw: string) {
 }
 
 // ---- Persist license record to Vercel Blob ----
-// One stable "latest" per customer (and by-email), plus append-only history.
 async function saveLicenseRecord(params: {
   customerId: string;
   licenseKey: string | null;
   email?: string | null;
-  source: string; // e.g., "checkout.session.completed" | "subscription.created" | "subscription.updated" | "subscription.deleted"
+  source: string;
   extra?: Record<string, any>;
-  writeLatest?: boolean;   // overwrite stable key(s)
-  writeHistory?: boolean;  // append immutable record
+  writeLatest?: boolean;
+  writeHistory?: boolean;
 }) {
   const {
     customerId,
@@ -69,25 +78,39 @@ async function saveLicenseRecord(params: {
     ...extra,
   };
 
+  const token = process.env.BLOB_READ_WRITE_TOKEN || "";
+  const tokenPreview = token ? `${token.slice(0, 12)}…${token.slice(-6)}` : null;
+
   const putOpts: Parameters<typeof put>[2] = {
-    access: "public",                 // server SDK currently typed for "public"
+    access: "public",
     contentType: "application/json",
-    addRandomSuffix: false,           // <<< force stable filenames
-    ...(process.env.BLOB_READ_WRITE_TOKEN
-      ? { token: process.env.BLOB_READ_WRITE_TOKEN }
-      : {}),
+    addRandomSuffix: false,           // stable file names
+    ...(token ? { token } : {}),
+  };
+
+  // Helper to log destination store subdomain
+  const logWrite = (label: string, url: string) => {
+    try {
+      const u = new URL(url);
+      const host = u.host; // e.g. yortzkpqfilo9jvz.public.blob.vercel-storage.com
+      const sub = host.split(".")[0];
+      console.log(`[BLOB] ${label}`, { url, storeSubdomain: sub, tokenPreview });
+      if (EXPECTED_BLOB_SUBDOMAIN && sub !== EXPECTED_BLOB_SUBDOMAIN) {
+        console.warn(`[BLOB][WARN] Expected subdomain "${EXPECTED_BLOB_SUBDOMAIN}" but wrote to "${sub}". Check env token!`);
+      }
+    } catch {
+      console.log(`[BLOB] ${label}`, { url, tokenPreview });
+    }
   };
 
   if (writeLatest) {
-    // Stable “latest” for quick lookup by customerId
     const latest = await put(
       `licenses/${customerId}.json`,
       Buffer.from(JSON.stringify(record, null, 2)),
       putOpts
     );
-    console.log("[BLOB] wrote latest:", latest.url);
+    logWrite("wrote latest", latest.url);
 
-    // Stable by-email index (only if email available)
     if (email) {
       const ek = emailKey(email);
       const byEmail = await put(
@@ -95,18 +118,17 @@ async function saveLicenseRecord(params: {
         Buffer.from(JSON.stringify(record, null, 2)),
         putOpts
       );
-      console.log("[BLOB] wrote email index:", byEmail.url);
+      logWrite("wrote email index", byEmail.url);
     }
   }
 
   if (writeHistory) {
-    // Append immutable history entry (timestamp makes it unique)
     const hist = await put(
       `licenses_history/${customerId}-${Date.now()}.json`,
       Buffer.from(JSON.stringify(record, null, 2)),
       putOpts
     );
-    console.log("[BLOB] wrote history:", hist.url);
+    logWrite("wrote history", hist.url);
   }
 }
 
@@ -115,10 +137,19 @@ export async function POST(req: NextRequest) {
 
   const sig = req.headers.get("stripe-signature");
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
+
   if (!secret) return bad("STRIPE_WEBHOOK_SECRET not set", 500);
   if (!sig) return bad("Missing Stripe signature header");
 
-  // Stripe requires the raw body for signature verification
+  // For quick env provenance while debugging
+  console.log("[stripe:webhook] env", {
+    projectUrl: process.env.VERCEL_URL || null,
+    tokenPreview: process.env.BLOB_READ_WRITE_TOKEN
+      ? `${process.env.BLOB_READ_WRITE_TOKEN.slice(0, 12)}…${process.env.BLOB_READ_WRITE_TOKEN.slice(-6)}`
+      : null,
+    secretPreview: `${secret.slice(0, 8)}…${secret.slice(-4)}`,
+  });
+
   const rawBody = await req.text();
 
   let event: Stripe.Event;
@@ -126,18 +157,49 @@ export async function POST(req: NextRequest) {
     event = stripe.webhooks.constructEvent(rawBody, sig, secret);
   } catch (err: any) {
     console.error("Webhook signature verification failed:", err?.message || err);
-    return bad("Invalid signature", 400);
+    return ok(); // acknowledge to avoid retries
   }
 
   try {
+    // Optional per-project routing based on known price IDs
+    if (ALLOWED_PRICE_IDS.length > 0) {
+      const obj: any = event.data.object;
+      const lineItems = obj?.lines?.data || obj?.display_items || [];
+      const priceIds = new Set<string>();
+
+      // Try to collect price ids from common event shapes
+      if (Array.isArray(lineItems)) {
+        for (const li of lineItems) {
+          const priceId =
+            li?.price?.id ||
+            li?.plan?.id ||
+            li?.price ||
+            li?.plan ||
+            null;
+          if (typeof priceId === "string") priceIds.add(priceId);
+        }
+      }
+      if (obj?.subscription_items?.data) {
+        for (const it of obj.subscription_items.data) {
+          const pid = it?.price?.id || it?.plan?.id;
+          if (typeof pid === "string") priceIds.add(pid);
+        }
+      }
+
+      const hasAllowed = [...priceIds].some(id => ALLOWED_PRICE_IDS.includes(id));
+      if (!hasAllowed) {
+        console.log("[stripe:webhook] skipped (no allowed price ids)", {
+          eventType: event.type,
+          priceIds: [...priceIds],
+        });
+        return ok();
+      }
+    }
+
     switch (event.type) {
-      // ----------------------------------------------------------
-      // 1) Checkout completes: create license, write latest + history
-      // ----------------------------------------------------------
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
 
-        // Customer id from session
         const customerId =
           typeof session.customer === "string"
             ? session.customer
@@ -148,13 +210,11 @@ export async function POST(req: NextRequest) {
           return ok();
         }
 
-        // Generate license and store on Customer metadata
         const licenseKey = issueLicenseForCustomerId(customerId);
         await stripe.customers.update(customerId, {
           metadata: { license_key: licenseKey },
         });
 
-        // Capture email: prefer session details; else fetch customer safely
         let email: string | null = session.customer_details?.email ?? null;
         if (!email) {
           try {
@@ -184,10 +244,6 @@ export async function POST(req: NextRequest) {
         return ok();
       }
 
-      // ----------------------------------------------------------
-      // 2) Subscription created: backfill license if missing,
-      //    write latest + history
-      // ----------------------------------------------------------
       case "customer.subscription.created": {
         const sub = event.data.object as Stripe.Subscription;
         const customerId =
@@ -225,18 +281,13 @@ export async function POST(req: NextRequest) {
             status: sub.status,
             current_period_end: sub.current_period_end,
           },
-          writeLatest: true,   // reflect current state
+          writeLatest: true,
           writeHistory: true,
         });
 
         return ok();
       }
 
-      // ----------------------------------------------------------
-      // 3) Subscription updated: license typically unchanged,
-      //    write history-only (optional: set writeLatest: true if you
-      //    want the latest snapshot to mirror status immediately)
-      // ----------------------------------------------------------
       case "customer.subscription.updated": {
         const sub = event.data.object as Stripe.Subscription;
         const customerId =
@@ -266,16 +317,13 @@ export async function POST(req: NextRequest) {
             status: sub.status,
             current_period_end: sub.current_period_end,
           },
-          writeLatest: false,  // history only (toggle to true if desired)
+          writeLatest: false,
           writeHistory: true,
         });
 
         return ok();
       }
 
-      // ----------------------------------------------------------
-      // 4) Subscription canceled/deleted: history-only
-      // ----------------------------------------------------------
       case "customer.subscription.deleted": {
         const sub = event.data.object as Stripe.Subscription;
         const customerId =
@@ -305,26 +353,23 @@ export async function POST(req: NextRequest) {
             status: sub.status,
             current_period_end: sub.current_period_end,
           },
-          writeLatest: false,  // keep last known “latest”; just log history
+          writeLatest: false,
           writeHistory: true,
         });
 
         return ok();
       }
 
-      // Optional: renewals / dunning history if you care
       case "invoice.payment_succeeded":
       case "invoice.payment_failed": {
         return ok();
       }
 
       default:
-        // Ignore other events (but still 200 to prevent retries)
         return ok();
     }
   } catch (err: any) {
-    console.error("Webhook handler error:", event.type, err?.message || err);
-    // Acknowledge to avoid retry storms; logs are enough to debug
+    console.error("Webhook handler error:", err?.message || err);
     return ok();
   }
 }
